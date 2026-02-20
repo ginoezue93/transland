@@ -1,0 +1,259 @@
+{% extends 'Plenty::templates.backend.layout' %}
+
+{% block content %}
+<div class="container" style="max-width: 900px; margin: 30px auto;">
+
+    <h1 style="margin-bottom: 24px;">
+        <img src="" alt="" style="height: 32px; margin-right: 10px; vertical-align: middle;">
+        Transland Shipping – Einstellungen
+    </h1>
+
+    <div id="transland-alert" class="alert" style="display:none; margin-bottom: 16px;"></div>
+
+    <form id="transland-settings-form">
+
+        <!-- API Connection -->
+        <div class="panel panel-default" style="margin-bottom: 20px;">
+            <div class="panel-heading"><strong>🔌 API-Verbindung</strong></div>
+            <div class="panel-body">
+                <div class="form-group">
+                    <label>Modus</label>
+                    <select name="sandbox" class="form-control" style="width: 200px;">
+                        <option value="1">Test (test-edigate.zufall.de)</option>
+                        <option value="0">Produktion (edigate.zufall.de)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Kunden-Kürzel [KUNDE] <small class="text-muted">(von Hr. Schrader)</small></label>
+                    <input type="text" name="api_customer_id" class="form-control" style="max-width:300px;" placeholder="z.B. MEINEFIRMA">
+                </div>
+                <div class="form-group">
+                    <label>Kundennummer bei Transland <small class="text-muted">(customer_id im Bordero)</small></label>
+                    <input type="text" name="plenty_customer_id_at_transland" class="form-control" style="max-width:300px;" placeholder="z.B. 4848415">
+                </div>
+                <div class="form-group">
+                    <label>Benutzername (DigestAuth)</label>
+                    <input type="text" name="username" class="form-control" style="max-width:300px;" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>Passwort (DigestAuth)</label>
+                    <input type="password" name="password" class="form-control" style="max-width:300px;" autocomplete="off">
+                </div>
+            </div>
+        </div>
+
+        <!-- Absenderadresse -->
+        <div class="panel panel-default" style="margin-bottom: 20px;">
+            <div class="panel-heading"><strong>🏭 Absenderadresse (Ihr Lager)</strong></div>
+            <div class="panel-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Name Zeile 1 (max. 35 Zeichen)</label>
+                            <input type="text" name="shipper_name1" class="form-control" maxlength="35">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Name Zeile 2 (optional)</label>
+                            <input type="text" name="shipper_name2" class="form-control" maxlength="35">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Straße + Hausnummer (max. 35 Zeichen)</label>
+                            <input type="text" name="shipper_street" class="form-control" maxlength="35">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-group">
+                            <label>PLZ</label>
+                            <input type="text" name="shipper_zip" class="form-control" maxlength="9">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Ort</label>
+                            <input type="text" name="shipper_city" class="form-control" maxlength="35">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Land (ISO)</label>
+                            <input type="text" name="shipper_country" class="form-control" maxlength="3" value="DE">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Telefon</label>
+                            <input type="text" name="shipper_phone" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Ansprechpartner</label>
+                            <input type="text" name="shipper_contact" class="form-control">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Etikett & Tagesabschluss -->
+        <div class="panel panel-default" style="margin-bottom: 20px;">
+            <div class="panel-heading"><strong>🖨️ Etikett & Tagesabschluss</strong></div>
+            <div class="panel-body">
+                <div class="form-group">
+                    <label>Etikettenformat</label>
+                    <select name="label_format" class="form-control" style="width:200px;">
+                        <option value="PDF">PDF (Standard-Drucker)</option>
+                        <option value="ZPL">ZPL (Etikettendrucker)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="auto_submit_enabled" value="1" style="margin-right:6px;">
+                        Automatischer Tagesabschluss aktiv
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>Uhrzeit für automatischen Tagesabschluss</label>
+                    <input type="time" name="auto_submit_time" class="form-control" style="width:150px;" value="17:00">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="return_ladeliste_pdf" value="1" style="margin-right:6px;" checked>
+                        Ladeliste als PDF vom Tagesabschluss anfordern
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Verpackungsarten je Prozess -->
+        <div class="panel panel-default" style="margin-bottom: 20px;">
+            <div class="panel-heading"><strong>📦 Standard-Verpackungsart je Verpackungsprozess</strong></div>
+            <div class="panel-body">
+                <p class="text-muted">Wird verwendet, wenn beim Verpacken keine explizite Verpackungsart angegeben wird.</p>
+                <table class="table table-condensed" style="max-width:500px;">
+                    <thead><tr><th>Prozess-ID</th><th>Bezeichnung</th><th>Verpackungsart</th></tr></thead>
+                    <tbody>
+                        {% set processes = [
+                            {id: 52,  label: '2. AP Kleinteile/Sonst. Teile'},
+                            {id: 73,  label: 'Montageschienen'},
+                            {id: 79,  label: '1. AP Kleinteile/Sonst. Teile'},
+                            {id: 85,  label: 'PV Module'},
+                            {id: 87,  label: 'Elektro'}
+                        ] %}
+                        {% for p in processes %}
+                        <tr>
+                            <td>{{ p.id }}</td>
+                            <td>{{ p.label }}</td>
+                            <td>
+                                <select name="packaging_type_process_{{ p.id }}" class="form-control input-sm">
+                                    <option value="FP">FP – Euro-Palette</option>
+                                    <option value="EP">EP – Einwegpalette</option>
+                                    <option value="KT">KT – Karton</option>
+                                    <option value="PA">PA – Paket</option>
+                                    <option value="HP">HP – Halbpalette</option>
+                                    <option value="GP">GP – Gitterboxpalette</option>
+                                    <option value="DP">DP – Düsseldorf-Palette</option>
+                                    <option value="ST">ST – Stück</option>
+                                </select>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg">💾 Einstellungen speichern</button>
+        &nbsp;
+        <button type="button" class="btn btn-default btn-lg" onclick="triggerManualSubmit()">
+            🚀 Tagesabschluss jetzt starten
+        </button>
+    </form>
+
+</div>
+
+<script>
+(function() {
+    // Load settings on page load
+    fetch('/rest/transland/settings', {
+        headers: {'Authorization': 'Bearer ' + (window.plenty && window.plenty.token || '')}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) return;
+        const s = data.settings;
+        const form = document.getElementById('transland-settings-form');
+        Object.keys(s).forEach(function(key) {
+            const el = form.querySelector('[name="' + key + '"]');
+            if (!el) return;
+            if (el.type === 'checkbox') {
+                el.checked = !!parseInt(s[key]);
+            } else {
+                el.value = s[key];
+            }
+        });
+    });
+
+    // Save settings
+    document.getElementById('transland-settings-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const data = {};
+        new FormData(this).forEach((v, k) => data[k] = v);
+        // Collect checkboxes (unchecked ones won't appear in FormData)
+        ['auto_submit_enabled','return_ladeliste_pdf'].forEach(function(k) {
+            if (!data[k]) data[k] = '0';
+        });
+
+        fetch('/rest/transland/settings', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(res => showAlert(res.message, res.success ? 'success' : 'danger'));
+    });
+
+    window.triggerManualSubmit = function() {
+        if (!confirm('Tagesabschluss jetzt starten? Alle ausstehenden Sendungen werden an Transland übermittelt.')) return;
+        fetch('/rest/transland/submit-day', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({return_list: true})
+        })
+        .then(r => r.json())
+        .then(function(res) {
+            if (res.success) {
+                let msg = 'Erfolgreich! ' + (res.shipment_count || 0) + ' Sendungen übermittelt.';
+                if (res.list_id) msg += ' Listen-ID: ' + res.list_id;
+                showAlert(msg, 'success');
+                // Open Ladeliste PDF if returned
+                if (res.list_pdf) {
+                    const link = document.createElement('a');
+                    link.href = 'data:application/pdf;base64,' + res.list_pdf;
+                    link.download = 'Ladeliste_' + new Date().toISOString().slice(0,10) + '.pdf';
+                    link.click();
+                }
+            } else {
+                showAlert('Fehler: ' + res.message, 'danger');
+            }
+        });
+    };
+
+    function showAlert(msg, type) {
+        const el = document.getElementById('transland-alert');
+        el.className = 'alert alert-' + type;
+        el.textContent = msg;
+        el.style.display = 'block';
+        setTimeout(() => el.style.display = 'none', 6000);
+    }
+})();
+</script>
+{% endblock %}
