@@ -59,7 +59,7 @@ class LabelService
     ): array {
         $orderId = $order['id'];
 
-        $this->getLogger(__METHOD__)->info('TranslandShipping::label.start', [
+        $this->getLogger(__METHOD__)->error('TranslandShipping::label.start', [
             'orderId'      => $orderId,
             'packageCount' => count($packages),
         ]);
@@ -94,7 +94,7 @@ class LabelService
             'submitted_to_api'  => false, // will be set to true after Bordero submission
         ];
 
-        $this->getLogger(__METHOD__)->info('TranslandShipping::label.success', [
+        $this->getLogger(__METHOD__)->error('TranslandShipping::label.success', [
             'orderId'  => $orderId,
             'ssccList' => $result['sscc_list'],
         ]);
