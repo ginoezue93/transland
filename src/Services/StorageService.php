@@ -19,11 +19,14 @@ class StorageService
 {
     use Loggable;
 
-    private DataBaseContract $database;
-
-    public function __construct(DataBaseContract $database)
+    /**
+     * FIX: DataBaseContract must NOT be injected via constructor in PlentyMarkets plugins.
+     * It must be resolved at runtime via pluginApp(). Constructor DI causes
+     * "Target class does not exist" errors in the plugin container.
+     */
+    private function db(): DataBaseContract
     {
-        $this->database = $database;
+        return pluginApp(DataBaseContract::class);
     }
 
     /**
@@ -39,8 +42,6 @@ class StorageService
         $record = pluginApp(\TranslandShipping\Models\TranslandShipment::class);
 
         $record->orderId      = (int)($shipmentData['order_id'] ?? 0);
-        // FIX: explicitly set pickupDate on the model so the WHERE query works correctly.
-        // Previously only stored inside the JSON blob, making ->where('pickupDate') return nothing.
         $record->pickupDate   = $shipmentData['pickup_date'] ?? date('Y-m-d');
         $record->listId       = null;   // filled after Bordero submission
         $record->submitted    = false;
@@ -48,7 +49,7 @@ class StorageService
         $record->createdAt    = date('Y-m-d H:i:s');
         $record->updatedAt    = date('Y-m-d H:i:s');
 
-        $this->database->save($record);
+        $this->db()->save($record);
 
         $this->getLogger(__METHOD__)->info('TranslandShipping::storage.saved', [
             'orderId'    => $record->orderId,
@@ -64,7 +65,7 @@ class StorageService
      */
     public function getPendingShipments(string $pickupDate): array
     {
-        $records = $this->database->query(\TranslandShipping\Models\TranslandShipment::class)
+        $records = $this->db()->query(\TranslandShipping\Models\TranslandShipment::class)
             ->where('pickupDate', '=', $pickupDate)
             ->where('submitted', '=', 0)
             ->get();
@@ -85,7 +86,7 @@ class StorageService
     public function markShipmentsAsSubmitted(array $orderIds, string $listId): void
     {
         foreach ($orderIds as $orderId) {
-            $records = $this->database->query(\TranslandShipping\Models\TranslandShipment::class)
+            $records = $this->db()->query(\TranslandShipping\Models\TranslandShipment::class)
                 ->where('orderId', '=', (int)$orderId)
                 ->where('submitted', '=', 0)
                 ->get();
@@ -94,7 +95,7 @@ class StorageService
                 $record->submitted = true;
                 $record->listId    = $listId;
                 $record->updatedAt = date('Y-m-d H:i:s');
-                $this->database->save($record);
+                $this->db()->save($record);
             }
         }
 
@@ -113,7 +114,7 @@ class StorageService
      */
     public function getSubmissionHistory(string $from, string $to): array
     {
-        return $this->database->query(\TranslandShipping\Models\TranslandShipment::class)
+        return $this->db()->query(\TranslandShipping\Models\TranslandShipment::class)
             ->where('pickupDate', '>=', $from)
             ->where('pickupDate', '<=', $to)
             ->where('submitted', '=', 1)
