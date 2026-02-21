@@ -25,7 +25,6 @@ class TranslandServiceProvider extends ServiceProvider
 
     public function boot(Dispatcher $eventDispatcher): void
     {
-        $this->getApplication()->register(TranslandRouteServiceProvider::class);
         $this->getApplication()->register(TranslandScheduleProvider::class);
     }
 }
