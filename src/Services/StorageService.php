@@ -19,14 +19,16 @@ class StorageService
 {
     use Loggable;
 
-    /**
-     * FIX: DataBaseContract must NOT be injected via constructor in PlentyMarkets plugins.
-     * It must be resolved at runtime via pluginApp(). Constructor DI causes
-     * "Target class does not exist" errors in the plugin container.
-     */
+    private DataBaseContract $database;
+
+    public function __construct(DataBaseContract $database)
+    {
+        $this->database = $database;
+    }
+
     private function db(): DataBaseContract
     {
-        return pluginApp(DataBaseContract::class);
+        return $this->database;
     }
 
     /**
