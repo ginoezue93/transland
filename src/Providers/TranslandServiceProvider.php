@@ -20,7 +20,6 @@ class TranslandServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        // loadMigration() existiert nicht in PlentyONE - entfernt!
         // Modelle werden automatisch erkannt wenn sie Model erweitern
 
         $this->getApplication()->register(TranslandRouteServiceProvider::class);
