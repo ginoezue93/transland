@@ -15,6 +15,8 @@ class TranslandServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->getApplication()->register(TranslandRouteServiceProvider::class);
+
         $this->getApplication()->singleton(SettingsService::class);
         $this->getApplication()->singleton(TranslandApiService::class);
         $this->getApplication()->singleton(PayloadBuilderService::class);
