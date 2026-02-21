@@ -99,9 +99,10 @@ class ShippingProcedure
             $shippingListService = pluginApp(ShippingListService::class);
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
-            $this->getLogger(__CLASS__)->info('TranslandShipping::ShippingProcedure.success', [
+            $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
                 'orderId'  => $order->id,
                 'ssccList' => $result['sscc_list'],
+                'hasLabel' => !empty($result['label_data']),
             ]);
 
         } catch (\Exception $e) {
