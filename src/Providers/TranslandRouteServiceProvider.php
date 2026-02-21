@@ -10,35 +10,22 @@ class TranslandRouteServiceProvider extends RouteServiceProvider
 {
     public function map(Router $router): void
     {
-        // Backend UI routes
-        $router->get(
-            'transland/settings',
-            'TranslandShipping\Controllers\SettingsController@index'
-        );
+        // no frontend routes needed
     }
 
     public function mapApi(ApiRouter $apiRouter): void
     {
-        // REST API routes for Plenty process automation
         $apiRouter->version(
             ['v1'],
             ['namespace' => 'TranslandShipping\Controllers', 'middleware' => 'oauth'],
             function (ApiRouter $apiRouter) {
-                // Label endpoint - called during packing process
+                // Label-Druck beim Verpacken
                 $apiRouter->post('transland/label', 'LabelController@createLabel');
-                
-                // Shipping list endpoint - called at end of day
-                $apiRouter->post('transland/shipping-list', 'ShippingListController@submitShippingList');
-                
-                // Get all pending (label-printed, not yet submitted) shipments
-                $apiRouter->get('transland/pending', 'ShippingListController@getPendingShipments');
-                
-                // Manually trigger daily shipping list submission
-                $apiRouter->post('transland/submit-day', 'ShippingListController@submitDailyShipments');
 
-                // Settings CRUD
-                $apiRouter->get('transland/settings', 'SettingsController@getSettings');
-                $apiRouter->post('transland/settings', 'SettingsController@saveSettings');
+                // Tagesabschluss / Bordero
+                $apiRouter->post('transland/submit-day', 'ShippingListController@submitDailyShipments');
+                $apiRouter->get('transland/pending', 'ShippingListController@getPendingShipments');
+                $apiRouter->post('transland/shipping-list', 'ShippingListController@submitShippingList');
             }
         );
     }

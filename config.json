@@ -1,0 +1,229 @@
+[
+  {
+    "tab": "API-Verbindung",
+    "key": "sandbox",
+    "label": "Modus",
+    "type": "dropdown",
+    "default": "1",
+    "possibleValues": {
+      "1": "Test (test-edigate.zufall.de)",
+      "0": "Produktion (edigate.zufall.de)"
+    }
+  },
+  {
+    "tab": "API-Verbindung",
+    "key": "api_customer_id",
+    "label": "Kunden-Kürzel [KUNDE] (von Hr. Schrader)",
+    "type": "text",
+    "default": "venturama"
+  },
+  {
+    "tab": "API-Verbindung",
+    "key": "plenty_customer_id_at_transland",
+    "label": "Kundennummer bei Transland (customer_id im Bordero)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "API-Verbindung",
+    "key": "username",
+    "label": "Benutzername (DigestAuth)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "API-Verbindung",
+    "key": "password",
+    "label": "Passwort (DigestAuth)",
+    "type": "password",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_name1",
+    "label": "Firmenname Zeile 1 (max. 35 Zeichen)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_name2",
+    "label": "Firmenname Zeile 2 (optional)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_street",
+    "label": "Straße + Hausnummer (max. 35 Zeichen)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_zip",
+    "label": "PLZ",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_city",
+    "label": "Ort",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_country",
+    "label": "Land (ISO-Code, z.B. DE)",
+    "type": "text",
+    "default": "DE"
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_phone",
+    "label": "Telefon",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_contact",
+    "label": "Ansprechpartner",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Absenderadresse",
+    "key": "shipper_email",
+    "label": "E-Mail",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Etikett & Tagesabschluss",
+    "key": "label_format",
+    "label": "Etikettenformat",
+    "type": "dropdown",
+    "default": "PDF",
+    "possibleValues": {
+      "PDF": "PDF (Standard-Drucker)",
+      "ZPL": "ZPL (Etikettendrucker / Zebra)"
+    }
+  },
+  {
+    "tab": "Etikett & Tagesabschluss",
+    "key": "auto_submit_enabled",
+    "label": "Automatischer Tagesabschluss aktiv",
+    "type": "dropdown",
+    "default": "1",
+    "possibleValues": {
+      "1": "Ja",
+      "0": "Nein"
+    }
+  },
+  {
+    "tab": "Etikett & Tagesabschluss",
+    "key": "auto_submit_time",
+    "label": "Uhrzeit für automatischen Tagesabschluss (HH:MM)",
+    "type": "text",
+    "default": "17:00"
+  },
+  {
+    "tab": "Etikett & Tagesabschluss",
+    "key": "return_ladeliste_pdf",
+    "label": "Ladeliste PDF beim Tagesabschluss anfordern",
+    "type": "dropdown",
+    "default": "1",
+    "possibleValues": {
+      "1": "Ja",
+      "0": "Nein"
+    }
+  },
+  {
+    "tab": "Verpackungsprozesse",
+    "key": "packaging_type_process_52",
+    "label": "Prozess 52 – 2. AP Kleinteile/Sonst. Teile",
+    "type": "dropdown",
+    "default": "KT",
+    "possibleValues": {
+      "FP": "FP – Euro-Palette",
+      "EP": "EP – Einwegpalette",
+      "KT": "KT – Karton",
+      "PA": "PA – Paket",
+      "HP": "HP – Halbpalette",
+      "DP": "DP – Düsseldorf-Palette",
+      "GP": "GP – Gitterboxpalette",
+      "ST": "ST – Stück"
+    }
+  },
+  {
+    "tab": "Verpackungsprozesse",
+    "key": "packaging_type_process_73",
+    "label": "Prozess 73 – Montageschienen",
+    "type": "dropdown",
+    "default": "FP",
+    "possibleValues": {
+      "FP": "FP – Euro-Palette",
+      "EP": "EP – Einwegpalette",
+      "KT": "KT – Karton",
+      "PA": "PA – Paket",
+      "HP": "HP – Halbpalette",
+      "DP": "DP – Düsseldorf-Palette",
+      "GP": "GP – Gitterboxpalette",
+      "ST": "ST – Stück"
+    }
+  },
+  {
+    "tab": "Verpackungsprozesse",
+    "key": "packaging_type_process_79",
+    "label": "Prozess 79 – 1. AP Kleinteile/Sonst. Teile",
+    "type": "dropdown",
+    "default": "KT",
+    "possibleValues": {
+      "FP": "FP – Euro-Palette",
+      "EP": "EP – Einwegpalette",
+      "KT": "KT – Karton",
+      "PA": "PA – Paket",
+      "HP": "HP – Halbpalette",
+      "DP": "DP – Düsseldorf-Palette",
+      "GP": "GP – Gitterboxpalette",
+      "ST": "ST – Stück"
+    }
+  },
+  {
+    "tab": "Verpackungsprozesse",
+    "key": "packaging_type_process_85",
+    "label": "Prozess 85 – PV Module",
+    "type": "dropdown",
+    "default": "FP",
+    "possibleValues": {
+      "FP": "FP – Euro-Palette",
+      "EP": "EP – Einwegpalette",
+      "KT": "KT – Karton",
+      "PA": "PA – Paket",
+      "HP": "HP – Halbpalette",
+      "DP": "DP – Düsseldorf-Palette",
+      "GP": "GP – Gitterboxpalette",
+      "ST": "ST – Stück"
+    }
+  },
+  {
+    "tab": "Verpackungsprozesse",
+    "key": "packaging_type_process_87",
+    "label": "Prozess 87 – Elektro",
+    "type": "dropdown",
+    "default": "KT",
+    "possibleValues": {
+      "FP": "FP – Euro-Palette",
+      "EP": "EP – Einwegpalette",
+      "KT": "KT – Karton",
+      "PA": "PA – Paket",
+      "HP": "HP – Halbpalette",
+      "DP": "DP – Düsseldorf-Palette",
+      "GP": "GP – Gitterboxpalette",
+      "ST": "ST – Stück"
+    }
+  }
+]
