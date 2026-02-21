@@ -39,6 +39,8 @@ class TranslandServiceProvider extends ServiceProvider
         Dispatcher $eventDispatcher,
         EventProceduresService $eventProceduresService
     ): void {
+        // Ereignisaktion registrieren – erscheint dann unter
+        // Einrichtung → Aufträge → Ereignisse → Aktionen → Plugins → Transland
         $eventProceduresService->registerProcedure(
             'TranslandShipping',
             ProcedureEntry::PROCEDURE_GROUP_ORDER,
@@ -49,6 +51,7 @@ class TranslandServiceProvider extends ServiceProvider
             ShippingProcedure::class . '@run'
         );
 
+        // Cron registrieren
         $this->getApplication()->register(TranslandScheduleProvider::class);
     }
 }
