@@ -19,8 +19,6 @@ class TranslandServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // FIX: Datenbankmodell registrieren – ohne diese Zeile kennt
-        // PlentyMarkets die Tabelle nicht und DataBaseContract schlägt fehl.
         $this->getApplication()->loadMigration(TranslandShipment::class);
 
         $this->getApplication()->register(TranslandRouteServiceProvider::class);
@@ -39,8 +37,6 @@ class TranslandServiceProvider extends ServiceProvider
         Dispatcher $eventDispatcher,
         EventProceduresService $eventProceduresService
     ): void {
-        // Ereignisaktion registrieren – erscheint dann unter
-        // Einrichtung → Aufträge → Ereignisse → Aktionen → Plugins → Transland
         $eventProceduresService->registerProcedure(
             'TranslandShipping',
             ProcedureEntry::PROCEDURE_GROUP_ORDER,
@@ -51,7 +47,6 @@ class TranslandServiceProvider extends ServiceProvider
             ShippingProcedure::class . '@run'
         );
 
-        // Cron registrieren
         $this->getApplication()->register(TranslandScheduleProvider::class);
     }
 }
