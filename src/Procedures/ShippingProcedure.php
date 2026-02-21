@@ -83,6 +83,17 @@ class ShippingProcedure
             // FIX: pass order array + packages array (not just order ID)
             $result = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
+            // SSCC zurück in die Plenty-Pakete schreiben
+            $packagesWithSscc = $result['packages'];
+            foreach ($plentyPackages as $idx => $plentyPkg) {
+                if (isset($packagesWithSscc[$idx]['sscc'])) {
+                    $packageRepo->updateOrderShippingPackage(
+                        $plentyPkg->id,
+                        ['packageNumber' => $packagesWithSscc[$idx]['sscc']]
+                    );
+                }
+            }
+
             // Store shipment for Bordero submission
             /** @var ShippingListService $shippingListService */
             $shippingListService = pluginApp(ShippingListService::class);
