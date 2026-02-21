@@ -6,7 +6,6 @@ use Plenty\Plugin\ServiceProvider;
 use Plenty\Modules\EventProcedures\Services\EventProceduresService;
 use Plenty\Modules\EventProcedures\Services\Entries\ProcedureEntry;
 use Plenty\Plugin\Log\Loggable;
-use TranslandShipping\Models\TranslandShipment;
 use TranslandShipping\Services\TranslandApiService;
 use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
@@ -21,7 +20,9 @@ class TranslandServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->getApplication()->loadMigration(TranslandShipment::class);
+        // loadMigration() existiert nicht in PlentyONE - entfernt!
+        // Modelle werden automatisch erkannt wenn sie Model erweitern
+
         $this->getApplication()->register(TranslandRouteServiceProvider::class);
         $this->getApplication()->bind(ShippingProcedure::class);
         $this->getApplication()->singleton(SettingsService::class);
@@ -34,7 +35,6 @@ class TranslandServiceProvider extends ServiceProvider
 
     public function boot(EventProceduresService $eventProceduresService): void
     {
-        // DEBUG: Dieser Log erscheint wenn boot() überhaupt erreicht wird
         $this->getLogger(__CLASS__)->error('TranslandShipping::ServiceProvider.boot', [
             'message' => 'boot() wurde aufgerufen',
             'time'    => date('Y-m-d H:i:s'),
@@ -50,7 +50,6 @@ class TranslandServiceProvider extends ServiceProvider
             '\TranslandShipping\Procedures\ShippingProcedure@run'
         );
 
-        // DEBUG: Zeigt ob registerProcedure true oder false zurückgibt
         $this->getLogger(__CLASS__)->error('TranslandShipping::ServiceProvider.registered', [
             'result' => $result,
         ]);
