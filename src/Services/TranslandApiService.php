@@ -1,172 +1,138 @@
 <?php
 
-namespace TranslandShipping\Services;
+namespace Transland\Services;
 
-use Plenty\Plugin\Http\Request;
 use Plenty\Plugin\Log\Loggable;
 
-/**
- * TranslandApiService
- *
- * Handles all HTTP communication with the Zufall/Transland REST API.
- * Authentication: HTTP Digest Auth
- * Base URLs:
- *   Test:       https://test-edigate.zufall.de/dw/request/shippingapi/{KUNDE}/
- *   Production: https://edigate.zufall.de/dw/request/shippingapi/{KUNDE}/
- */
 class TranslandApiService
 {
     use Loggable;
 
-    private SettingsService $settingsService;
+    private string $baseUrl;
+    private string $username;
+    private string $password;
+    private string $customerId;
 
     public function __construct(SettingsService $settingsService)
     {
-        $this->settingsService = $settingsService;
+        $settings = $settingsService->getSettings();
+
+        $sandbox        = $settings['sandbox'] ?? true;
+        $this->customerId = $settings['customer_id'] ?? '';
+        $this->username = $settings['api_username'] ?? '';
+        $this->password = $settings['api_password'] ?? '';
+
+        $host = $sandbox
+            ? 'test-edigate.zufall.de'
+            : 'edigate.zufall.de';
+
+        $this->baseUrl = 'https://' . $host . '/dw/request/shippingapi/' . $this->customerId;
     }
 
     // -------------------------------------------------------------------------
-    // Label endpoint
+    // Label anfordern
     // -------------------------------------------------------------------------
-
-    /**
-     * Request a shipping label (PDF or ZPL) from Transland.
-     * NOTE: This does NOT register the shipment. Use submitShippingList for that.
-     *
-     * @param array  $shippingPayload  A single Shipping object (see API docs)
-     * @param string $format           'PDF' (default) or 'ZPL'
-     *
-     * @return array{
-     *   packages: array,
-     *   label_data: string,
-     *   sscc_list: string[]
-     * }
-     */
-    public function requestLabel(array $shippingPayload, string $format = 'PDF'): array
+    public function createLabel(array $payload): array
     {
-        $queryParams = [];
-        if (strtoupper($format) === 'ZPL') {
-            $queryParams['format'] = 'ZPL';
-        }
-
-        $response = $this->post('label', $shippingPayload, $queryParams);
-
-        // Extract all SSCCs so the caller can persist them in Plenty
-        $ssccList = array_map(
-            fn(array $pkg) => $pkg['sscc'] ?? '',
-            $response['packages'] ?? []
-        );
-
-        return [
-            'packages'   => $response['packages'] ?? [],
-            'label_data' => $response['label_data'] ?? '',
-            'sscc_list'  => array_filter($ssccList),
-        ];
+        return $this->request('POST', '/label', $payload);
     }
 
     // -------------------------------------------------------------------------
-    // Shipping-list endpoint
+    // Tagesabschluss (Bordero) senden
     // -------------------------------------------------------------------------
-
-    /**
-     * Submit a complete Bordero/Versandliste to Transland.
-     * This creates actual transport orders in their system.
-     *
-     * @param array $borderoPayload  A Versandliste object (see API docs)
-     * @param bool  $returnList      If true, response contains a base64 PDF Ladeliste
-     *
-     * @return array{result: string, listPDF?: string}
-     */
-    public function submitShippingList(array $borderoPayload, bool $returnList = false): array
+    public function submitBordero(array $payload): array
     {
-        $queryParams = $returnList ? ['returnList' => 'true'] : [];
-        return $this->post('shipping-list', $borderoPayload, $queryParams);
+        return $this->request('POST', '/bordero', $payload);
     }
 
     // -------------------------------------------------------------------------
-    // Internal HTTP helpers
+    // Sendungsstatus abfragen
     // -------------------------------------------------------------------------
-
-    /**
-     * Perform a POST request against the Transland API.
-     *
-     * @param string $endpoint    'label' or 'shipping-list'
-     * @param array  $body        JSON body payload
-     * @param array  $queryParams Optional query parameters
-     *
-     * @return array Decoded JSON response
-     * @throws \RuntimeException on HTTP or API error
-     */
-    private function post(string $endpoint, array $body, array $queryParams = []): array
+    public function getStatus(string $sscc): array
     {
-        $settings = $this->settingsService->getSettings();
-        $baseUrl  = $this->buildBaseUrl($settings);
-        $url      = $baseUrl . $endpoint;
+        return $this->request('GET', '/status/' . $sscc, []);
+    }
 
-        if (!empty($queryParams)) {
-            $url .= '?' . http_build_query($queryParams);
-        }
-
-        $this->getLogger(__METHOD__)->debug(
-            'TranslandShipping::api.request',
-            ['url' => $url, 'body' => $body]
-        );
+    // -------------------------------------------------------------------------
+    // Interner HTTP-Client mit Digest Auth
+    // -------------------------------------------------------------------------
+    private function request(string $method, string $path, array $body): array
+    {
+        $url  = $this->baseUrl . $path;
+        $json = ($method !== 'GET' && count($body) > 0) ? json_encode($body) : null;
 
         $ch = curl_init();
+
         curl_setopt_array($ch, [
+            // URL & Methode
             CURLOPT_URL            => $url,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => json_encode($body),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CUSTOMREQUEST  => $method,
+
+            // Digest Auth – NUR DIGEST, kein Basic-Fallback
+            CURLOPT_HTTPAUTH       => CURLAUTH_DIGEST,
+            CURLOPT_USERPWD        => $this->username . ':' . $this->password,
+
+            // Request Body
+            CURLOPT_POSTFIELDS     => $json,
+
+            // Header
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
                 'Accept: application/json',
             ],
-            // Digest Authentication (as specified by Transland)
-            CURLOPT_HTTPAUTH       => CURLAUTH_DIGEST,
-            CURLOPT_USERPWD        => $settings['username'] . ':' . $settings['password'],
+
+            // Response
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER         => false,
+
+            // TLS
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+
+            // Timeout
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT        => 30,
+
+            // Digest braucht zwei Roundtrips – cURL macht das automatisch
+            // (1. Request ohne Auth → 401 + nonce → 2. Request mit Hash)
+            // CURLOPT_FOLLOWLOCATION ist NICHT nötig, cURL handelt das intern
         ]);
 
-        $rawResponse = curl_exec($ch);
-        $httpCode    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError   = curl_error($ch);
+        $responseBody = curl_exec($ch);
+        $httpStatus   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError    = curl_error($ch);
         curl_close($ch);
 
-        if ($curlError) {
-            $this->getLogger(__METHOD__)->error('TranslandShipping::api.curlError', ['error' => $curlError]);
-            throw new \RuntimeException('cURL error: ' . $curlError);
-        }
-
-        $decoded = json_decode($rawResponse, true);
-
-        if ($httpCode !== 200) {
-            $this->getLogger(__METHOD__)->error('TranslandShipping::api.httpError', [
-                'httpCode' => $httpCode,
-                'response' => $rawResponse,
+        // cURL-Fehler (Netzwerk, TLS, Timeout)
+        if ($responseBody === false) {
+            $this->getLogger(__CLASS__)->error('Transland cURL error', [
+                'url'   => $url,
+                'error' => $curlError,
             ]);
-            throw new \RuntimeException(
-                sprintf('Transland API error (HTTP %d): %s', $httpCode, $rawResponse)
-            );
+            return ['success' => false, 'error' => 'cURL error: ' . $curlError];
         }
 
-        $this->getLogger(__METHOD__)->debug('TranslandShipping::api.response', ['response' => $decoded]);
+        // HTTP-Fehler
+        if ($httpStatus < 200 || $httpStatus >= 300) {
+            $this->getLogger(__CLASS__)->error('Transland HTTP error', [
+                'url'    => $url,
+                'status' => $httpStatus,
+                'body'   => $responseBody,
+            ]);
+            return [
+                'success' => false,
+                'status'  => $httpStatus,
+                'error'   => 'HTTP ' . $httpStatus,
+                'body'    => $responseBody,
+            ];
+        }
 
-        return $decoded ?? [];
-    }
-
-    /**
-     * Build the base URL from settings.
-     * Pattern: https://{host}/dw/request/shippingapi/{KUNDE}/
-     */
-    private function buildBaseUrl(array $settings): string
-    {
-        $useSandbox = (bool)($settings['sandbox'] ?? true);
-        $host       = $useSandbox
-            ? 'test-edigate.zufall.de'
-            : 'edigate.zufall.de';
-        $kunde      = $settings['api_customer_id'] ?? '';
-
-        return sprintf('https://%s/dw/request/shippingapi/%s/', $host, $kunde);
+        // Erfolg
+        $decoded = json_decode($responseBody, true);
+        return [
+            'success' => true,
+            'status'  => $httpStatus,
+            'data'    => $decoded ?? $responseBody,
+        ];
     }
 }
