@@ -5,7 +5,6 @@ namespace TranslandShipping\Providers;
 use Plenty\Plugin\ServiceProvider;
 use Plenty\Modules\EventProcedures\Services\EventProceduresService;
 use Plenty\Modules\EventProcedures\Services\Entries\ProcedureEntry;
-use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\TranslandApiService;
 use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
@@ -16,12 +15,8 @@ use TranslandShipping\Procedures\ShippingProcedure;
 
 class TranslandServiceProvider extends ServiceProvider
 {
-    use Loggable;
-
     public function register(): void
     {
-        // Modelle werden automatisch erkannt wenn sie Model erweitern
-
         $this->getApplication()->register(TranslandRouteServiceProvider::class);
         $this->getApplication()->bind(ShippingProcedure::class);
         $this->getApplication()->singleton(SettingsService::class);
@@ -34,12 +29,7 @@ class TranslandServiceProvider extends ServiceProvider
 
     public function boot(EventProceduresService $eventProceduresService): void
     {
-        $this->getLogger(__CLASS__)->error('TranslandShipping::ServiceProvider.boot', [
-            'message' => 'boot() wurde aufgerufen',
-            'time'    => date('Y-m-d H:i:s'),
-        ]);
-
-        $result = $eventProceduresService->registerProcedure(
+        $eventProceduresService->registerProcedure(
             'TranslandShipping',
             ProcedureEntry::EVENT_TYPE_ORDER,
             [
@@ -48,10 +38,6 @@ class TranslandServiceProvider extends ServiceProvider
             ],
             '\TranslandShipping\Procedures\ShippingProcedure@run'
         );
-
-        $this->getLogger(__CLASS__)->error('TranslandShipping::ServiceProvider.registered', [
-            'result' => $result,
-        ]);
 
         $this->getApplication()->register(TranslandScheduleProvider::class);
     }
