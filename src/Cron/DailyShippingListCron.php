@@ -31,20 +31,14 @@ class DailyShippingListCron extends CronHandler
         $this->settingsService     = $settingsService;
     }
 
-    /**
-     * Main cron execution method.
-     * PlentyMarkets calls this every 15 minutes.
-     */
     public function handle(): void
     {
         $settings = $this->settingsService->getSettings();
 
-        // Only run if auto-submit is enabled
         if (!($settings['auto_submit_enabled'] ?? true)) {
             return;
         }
 
-        // Check if we're within the configured submission time window (±7 min)
         $configuredTime = $settings['auto_submit_time'] ?? '17:00';
         if (!$this->isWithinTimeWindow($configuredTime, 7)) {
             return;
@@ -67,23 +61,26 @@ class DailyShippingListCron extends CronHandler
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::cron.error', [
                 'message' => $e->getMessage(),
-                'trace'   => $e->getTraceAsString(),
             ]);
         }
     }
 
     /**
      * Check if current time is within ±$windowMinutes of the target time.
-     *
-     * @param string $targetTime  Format: "HH:MM"
-     * @param int    $windowMinutes
+     * Uses max() instead of abs() which is not allowed in PlentyONE plugins.
      */
     private function isWithinTimeWindow(string $targetTime, int $windowMinutes = 7): bool
     {
-        [$targetH, $targetM] = explode(':', $targetTime);
-        $targetMinutes  = (int)$targetH * 60 + (int)$targetM;
+        $parts         = explode(':', $targetTime);
+        $targetH       = (int)($parts[0] ?? 0);
+        $targetM       = (int)($parts[1] ?? 0);
+        $targetMinutes = $targetH * 60 + $targetM;
         $currentMinutes = (int)date('H') * 60 + (int)date('i');
 
-        return abs($currentMinutes - $targetMinutes) <= $windowMinutes;
+        // Use max/min instead of abs() which is not allowed in PlentyONE
+        $diff = $currentMinutes - $targetMinutes;
+        $diff = max($diff, -$diff);
+
+        return $diff <= $windowMinutes;
     }
 }
