@@ -29,6 +29,6 @@ class TranslandShipment extends Model
 
     public function getTableName(): string
     {
-        return 'TranslandShipping::TranslandShipment';
+        return 'TranslandShipping::Shipment';
     }
 }
