@@ -17,45 +17,29 @@ class BorderoProcedure
             /** @var StorageService $storage */
             $storage = pluginApp(StorageService::class);
 
-            // Get ALL pending shipments regardless of date
             $pending = $storage->getPendingShipments();
 
-            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.pending', [
-                'count' => count($pending),
-            ]);
-
             if (empty($pending)) {
-                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.noPending', [
-                    'message' => 'Keine ausstehenden Sendungen',
-                ]);
+                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.noPending', []);
                 return;
             }
 
-            // Group by pickup date and submit each date separately
-            $byDate = [];
-            foreach ($pending as $shipment) {
-                $date = $shipment['pickup_date'] ?? date('Y-m-d');
-                $byDate[$date][] = $shipment;
-            }
-
-            /** @var ShippingListService $service */
-            $service = pluginApp(ShippingListService::class);
-
-            foreach ($byDate as $date => $shipments) {
-                $result = $service->submitDailyShipments($date, true);
-
-                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.result', [
-                    'date'           => $date,
-                    'result'         => $result['result'],
-                    'list_id'        => $result['list_id'] ?? '',
-                    'shipment_count' => $result['shipment_count'] ?? 0,
-                ]);
-            }
+            // Log only the first shipment keys and key values
+            $first = $pending[0];
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.firstShipment', [
+                'keys'            => implode(', ', array_keys($first)),
+                'reference'       => $first['reference'] ?? 'MISSING',
+                'weight_gr'       => $first['weight_gr'] ?? 'MISSING',
+                'value'           => $first['value'] ?? 'MISSING',
+                'pickup_date'     => $first['pickup_date'] ?? 'MISSING',
+                'has_shipper'     => isset($first['shipper_address']) ? 'YES' : 'NO',
+                'has_consignee'   => isset($first['consignee_address']) ? 'YES' : 'NO',
+                'has_packages'    => isset($first['packages']) ? count($first['packages']) : 'NO',
+            ]);
 
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.error', [
                 'message' => $e->getMessage(),
-                'trace'   => $e->getTraceAsString(),
             ]);
         }
     }
