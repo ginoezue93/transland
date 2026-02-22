@@ -61,39 +61,46 @@ class ShippingProcedure
             $labelService = pluginApp(LabelService::class);
             $result       = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
-            // SSCC zurück in die Plenty-Pakete schreiben + Label am Paket speichern
-            /** @var DocumentRepositoryContract $documentRepo */
-            $documentRepo = pluginApp(DocumentRepositoryContract::class);
-
+            // SSCC zurück in die Plenty-Pakete schreiben
             foreach ($plentyPackages as $idx => $plentyPkg) {
-                // SSCC schreiben
                 if (isset($result['packages'][$idx]['sscc'])) {
                     $packageRepo->updateOrderShippingPackage(
                         $plentyPkg->id,
                         ['packageNumber' => $result['packages'][$idx]['sscc']]
                     );
                 }
+            }
 
-                // Label am Shipping Package speichern
-                if (!empty($result['label_data'])) {
-                    try {
-                        $documentRepo->uploadOrderShippingPackageDocuments(
-                            $plentyPkg->id,
-                            'shipping_label',
-                            $result['label_data']  // base64 encoded document
-                        );
+            // Label als Dokument am Auftrag speichern (Typ 'uploaded' = externe Dokumente)
+            if (!empty($result['label_data'])) {
+                try {
+                    /** @var DocumentRepositoryContract $documentRepo */
+                    $documentRepo = pluginApp(DocumentRepositoryContract::class);
 
-                        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
-                            'orderId'   => $order->id,
-                            'packageId' => $plentyPkg->id,
-                        ]);
-                    } catch (\Throwable $e) {
-                        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
-                            'orderId'   => $order->id,
-                            'packageId' => $plentyPkg->id,
-                            'error'     => $e->getMessage(),
-                        ]);
-                    }
+                    $ssccSuffix = !empty($result['sscc_list']) ? '_' . $result['sscc_list'][0] : '';
+                    $filename   = 'Transland_Label_' . $order->id . $ssccSuffix . '.pdf';
+
+                    $documentRepo->uploadOrderDocuments(
+                        $order->id,
+                        'uploaded',
+                        [
+                            [
+                                'content' => $result['label_data'],
+                                'name'    => $filename,
+                            ]
+                        ]
+                    );
+
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
+                        'orderId'  => $order->id,
+                        'filename' => $filename,
+                    ]);
+
+                } catch (\Throwable $e) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
+                        'orderId' => $order->id,
+                        'error'   => $e->getMessage(),
+                    ]);
                 }
             }
 
