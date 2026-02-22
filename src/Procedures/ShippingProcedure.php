@@ -5,7 +5,7 @@ namespace TranslandShipping\Procedures;
 use Plenty\Modules\EventProcedures\Events\EventProceduresTriggered;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
-use Plenty\Modules\Order\Contracts\OrderRepositoryContract;
+use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
@@ -98,23 +98,27 @@ class ShippingProcedure
 
     /**
      * Speichert das Label PDF als Dokument am Auftrag.
-     * Verwendet den OrderRepositoryContract um ein externes Dokument hochzuladen.
+     * Typ 'shipping_label' erscheint unter Auftrag → Dokumente.
      */
     private function saveLabelAsDocument(int $orderId, string $base64Pdf, array $ssccList): void
     {
         try {
+            /** @var DocumentRepositoryContract $documentRepo */
+            $documentRepo = pluginApp(DocumentRepositoryContract::class);
+
             $ssccSuffix = !empty($ssccList) ? '_' . $ssccList[0] : '';
-            $filename   = 'Transland_Label_' . $orderId . $ssccSuffix;
+            $filename   = 'Transland_Label_' . $orderId . $ssccSuffix . '.pdf';
 
-            /** @var OrderRepositoryContract $orderRepo */
-            $orderRepo = pluginApp(OrderRepositoryContract::class);
-
-            $orderRepo->createOrderDocument($orderId, [
-                'type'    => 'external_document',
-                'name'    => $filename,
-                'content' => $base64Pdf,
-                'mimeType'=> 'application/pdf',
-            ]);
+            $documentRepo->uploadOrderDocuments(
+                $orderId,
+                'shipping_label',   // document type
+                [
+                    [
+                        'content' => $base64Pdf,
+                        'name'    => $filename,
+                    ]
+                ]
+            );
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
                 'orderId'  => $orderId,
