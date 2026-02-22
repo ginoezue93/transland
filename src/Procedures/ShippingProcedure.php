@@ -79,8 +79,6 @@ class ShippingProcedure
                 $ssccSuffix = !empty($result['sscc_list']) ? '_' . $result['sscc_list'][0] : '';
                 $filename   = 'Transland_Label_' . $order->id . $ssccSuffix . '.pdf';
 
-                // 1) RICHTIG: Versandlabel am Shipping-Package speichern
-                // (uploadOrderDocuments unterstützt 'shippingLabel' NICHT -> ValidationException)
                 try {
                     $firstPackageId = $plentyPackages[0]->id ?? null;
 
@@ -88,7 +86,6 @@ class ShippingProcedure
                         throw new \RuntimeException('Kein packageId gefunden (plentyPackages[0]->id ist leer).');
                     }
 
-                    // Erwartet: base64 encoded document (string)
                     $documentRepo->uploadOrderShippingPackageDocuments(
                         (int)$firstPackageId,
                         'shippingLabel',
@@ -102,7 +99,6 @@ class ShippingProcedure
                     ]);
 
                 } catch (\Throwable $e) {
-                    // 2) Fallback: als Order-Dokument "uploaded" ablegen (unterstützter Typ)
                     try {
                         $documentRepo->uploadOrderDocuments(
                             $order->id,
