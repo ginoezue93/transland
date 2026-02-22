@@ -2,14 +2,14 @@
 
 namespace TranslandShipping\Procedures;
 
+use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Modules\EventProcedures\Events\EventProceduresTriggered;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
-use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
-use TranslandShipping\Services\ShippingListService;
 use TranslandShipping\Services\SettingsService;
+use TranslandShipping\Services\ShippingListService;
 
 class ShippingProcedure
 {
@@ -71,38 +71,65 @@ class ShippingProcedure
                 }
             }
 
-            // Label als Dokument am Auftrag speichern (Typ 'shippingLabel' = externe Dokumente)
+            // Label speichern
             if (!empty($result['label_data'])) {
+                /** @var DocumentRepositoryContract $documentRepo */
+                $documentRepo = pluginApp(DocumentRepositoryContract::class);
+
+                $ssccSuffix = !empty($result['sscc_list']) ? '_' . $result['sscc_list'][0] : '';
+                $filename   = 'Transland_Label_' . $order->id . $ssccSuffix . '.pdf';
+
+                // 1) RICHTIG: Versandlabel am Shipping-Package speichern
+                // (uploadOrderDocuments unterstützt 'shippingLabel' NICHT -> ValidationException)
                 try {
-                    /** @var DocumentRepositoryContract $documentRepo */
-                    $documentRepo = pluginApp(DocumentRepositoryContract::class);
+                    $firstPackageId = $plentyPackages[0]->id ?? null;
 
-                    $ssccSuffix = !empty($result['sscc_list']) ? '_' . $result['sscc_list'][0] : '';
-                    $filename   = 'Transland_Label_' . $order->id . $ssccSuffix . '.pdf';
+                    if (!$firstPackageId) {
+                        throw new \RuntimeException('Kein packageId gefunden (plentyPackages[0]->id ist leer).');
+                    }
 
-                    $documentRepo->uploadOrderDocuments(
-                        $order->id,
+                    // Erwartet: base64 encoded document (string)
+                    $documentRepo->uploadOrderShippingPackageDocuments(
+                        (int)$firstPackageId,
                         'shippingLabel',
-                        [
-                            [
-                                'content' => $result['label_data'],
-                                'name'    => $filename,
-                            ]
-                        ]
+                        (string)$result['label_data']
                     );
 
-                    $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
-                        'orderId'  => $order->id,
-                        'filename' => $filename,
+                    $this->getLogger(__CLASS__)->info('TranslandShipping::ShippingProcedure.labelSavedToPackage', [
+                        'orderId'    => $order->id,
+                        'packageId'  => (int)$firstPackageId,
+                        'filename'   => $filename,
                     ]);
 
                 } catch (\Throwable $e) {
-                    $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
-                        'orderId' => $order->id,
-                        'error'   => $e->getMessage(),
-                        'class'   => get_class($e),
-                        'trace'   => $e->getTraceAsString(),
-                    ]);
+                    // 2) Fallback: als Order-Dokument "uploaded" ablegen (unterstützter Typ)
+                    try {
+                        $documentRepo->uploadOrderDocuments(
+                            $order->id,
+                            'uploaded',
+                            [
+                                [
+                                    'content' => (string)$result['label_data'],
+                                    'name'    => $filename,
+                                ]
+                            ]
+                        );
+
+                        $this->getLogger(__CLASS__)->warning('TranslandShipping::ShippingProcedure.labelSavedFallbackUploaded', [
+                            'orderId'  => $order->id,
+                            'filename' => $filename,
+                            'reason'   => $e->getMessage(),
+                        ]);
+
+                    } catch (\Throwable $fallbackError) {
+                        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
+                            'orderId' => $order->id,
+                            'error'   => $fallbackError->getMessage(),
+                            'class'   => get_class($fallbackError),
+                            'trace'   => $fallbackError->getTraceAsString(),
+                            'prev'    => $e->getMessage(),
+                        ]);
+                    }
                 }
             }
 
@@ -111,9 +138,9 @@ class ShippingProcedure
             $shippingListService = pluginApp(ShippingListService::class);
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
-            $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
+            $this->getLogger(__CLASS__)->info('TranslandShipping::ShippingProcedure.success', [
                 'orderId'  => $order->id,
-                'ssccList' => $result['sscc_list'],
+                'ssccList' => $result['sscc_list'] ?? [],
             ]);
 
         } catch (\Exception $e) {
