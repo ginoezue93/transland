@@ -5,7 +5,7 @@ namespace TranslandShipping\Procedures;
 use Plenty\Modules\EventProcedures\Events\EventProceduresTriggered;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
-use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
+use Plenty\Modules\Order\Contracts\OrderRepositoryContract;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
@@ -29,14 +29,12 @@ class ShippingProcedure
 
         try {
             /** @var OrderShippingPackageRepositoryContract $packageRepo */
-            $packageRepo = pluginApp(OrderShippingPackageRepositoryContract::class);
-
+            $packageRepo    = pluginApp(OrderShippingPackageRepositoryContract::class);
             $plentyPackages = $packageRepo->listOrderShippingPackages($order->id);
 
             if (empty($plentyPackages)) {
                 $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.noPackages', [
                     'orderId' => $order->id,
-                    'message' => 'Keine Packstücke am Auftrag – Label kann nicht erstellt werden.',
                 ]);
                 return;
             }
@@ -64,12 +62,11 @@ class ShippingProcedure
             $result       = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
             // SSCC zurück in die Plenty-Pakete schreiben
-            $packagesWithSscc = $result['packages'];
             foreach ($plentyPackages as $idx => $plentyPkg) {
-                if (isset($packagesWithSscc[$idx]['sscc'])) {
+                if (isset($result['packages'][$idx]['sscc'])) {
                     $packageRepo->updateOrderShippingPackage(
                         $plentyPkg->id,
-                        ['packageNumber' => $packagesWithSscc[$idx]['sscc']]
+                        ['packageNumber' => $result['packages'][$idx]['sscc']]
                     );
                 }
             }
@@ -85,9 +82,9 @@ class ShippingProcedure
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
-                'orderId'      => $order->id,
-                'ssccList'     => $result['sscc_list'],
-                'labelSaved'   => !empty($result['label_data']),
+                'orderId'    => $order->id,
+                'ssccList'   => $result['sscc_list'],
+                'labelSaved' => !empty($result['label_data']),
             ]);
 
         } catch (\Exception $e) {
@@ -100,23 +97,23 @@ class ShippingProcedure
     }
 
     /**
-     * Save the label PDF as a document on the order.
-     * It will appear under Auftrag → Dokumente in the Plenty backend.
+     * Speichert das Label PDF als Dokument am Auftrag.
+     * Verwendet den OrderRepositoryContract um ein externes Dokument hochzuladen.
      */
     private function saveLabelAsDocument(int $orderId, string $base64Pdf, array $ssccList): void
     {
         try {
-            /** @var DocumentRepositoryContract $documentRepo */
-            $documentRepo = pluginApp(DocumentRepositoryContract::class);
-
             $ssccSuffix = !empty($ssccList) ? '_' . $ssccList[0] : '';
-            $filename   = 'Transland_Label_' . $orderId . $ssccSuffix . '.pdf';
+            $filename   = 'Transland_Label_' . $orderId . $ssccSuffix;
 
-            $documentRepo->uploadOrderDocuments($orderId, [
-                [
-                    'content' => $base64Pdf,
-                    'name'    => $filename,
-                ]
+            /** @var OrderRepositoryContract $orderRepo */
+            $orderRepo = pluginApp(OrderRepositoryContract::class);
+
+            $orderRepo->createOrderDocument($orderId, [
+                'type'    => 'external_document',
+                'name'    => $filename,
+                'content' => $base64Pdf,
+                'mimeType'=> 'application/pdf',
             ]);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
@@ -125,7 +122,6 @@ class ShippingProcedure
             ]);
 
         } catch (\Throwable $e) {
-            // Label-Speicherung ist nicht kritisch – nur loggen
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
                 'orderId' => $orderId,
                 'error'   => $e->getMessage(),
@@ -142,7 +138,6 @@ class ShippingProcedure
                 break;
             }
         }
-
         if (!$deliveryAddress) {
             foreach ($order->addresses as $relation) {
                 if (($relation->pivot->typeId ?? null) == 1) {
