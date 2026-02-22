@@ -71,7 +71,7 @@ class ShippingProcedure
                 }
             }
 
-            // Label als Dokument am Auftrag speichern (Typ 'uploaded' = externe Dokumente)
+            // Label als Dokument am Auftrag speichern (Typ 'shippingLabel' = externe Dokumente)
             if (!empty($result['label_data'])) {
                 try {
                     /** @var DocumentRepositoryContract $documentRepo */
@@ -82,7 +82,7 @@ class ShippingProcedure
 
                     $documentRepo->uploadOrderDocuments(
                         $order->id,
-                        'uploaded',
+                        'shippingLabel',
                         [
                             [
                                 'content' => $result['label_data'],
