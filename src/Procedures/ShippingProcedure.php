@@ -100,6 +100,8 @@ class ShippingProcedure
                     $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
                         'orderId' => $order->id,
                         'error'   => $e->getMessage(),
+                        'class'   => get_class($e),
+                        'trace'   => $e->getTraceAsString(),
                     ]);
                 }
             }
