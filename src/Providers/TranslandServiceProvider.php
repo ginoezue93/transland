@@ -12,6 +12,7 @@ use TranslandShipping\Services\StorageService;
 use TranslandShipping\Services\SettingsService;
 use TranslandShipping\Services\PayloadBuilderService;
 use TranslandShipping\Procedures\ShippingProcedure;
+use TranslandShipping\Procedures\BorderoProcedure;
 
 class TranslandServiceProvider extends ServiceProvider
 {
@@ -19,6 +20,7 @@ class TranslandServiceProvider extends ServiceProvider
     {
         $this->getApplication()->register(TranslandRouteServiceProvider::class);
         $this->getApplication()->bind(ShippingProcedure::class);
+        $this->getApplication()->bind(BorderoProcedure::class);
         $this->getApplication()->singleton(SettingsService::class);
         $this->getApplication()->singleton(TranslandApiService::class);
         $this->getApplication()->singleton(PayloadBuilderService::class);
@@ -37,6 +39,16 @@ class TranslandServiceProvider extends ServiceProvider
                 'en' => 'Register shipment with Transland',
             ],
             '\TranslandShipping\Procedures\ShippingProcedure@run'
+        );
+
+        $eventProceduresService->registerProcedure(
+            'TranslandShipping',
+            ProcedureEntry::EVENT_TYPE_ORDER,
+            [
+                'de' => 'Tagesabschluss an Transland senden (Bordero)',
+                'en' => 'Submit daily Bordero to Transland',
+            ],
+            '\TranslandShipping\Procedures\BorderoProcedure@run'
         );
 
         $this->getApplication()->register(TranslandScheduleProvider::class);

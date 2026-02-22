@@ -4,29 +4,29 @@ namespace TranslandShipping\Providers;
 
 use Plenty\Plugin\RouteServiceProvider;
 use Plenty\Plugin\Routing\Router;
+use Plenty\Plugin\Routing\ApiRouter;
 
 class TranslandRouteServiceProvider extends RouteServiceProvider
 {
     public function map(Router $router): void
     {
-        $router->get(
-            'transland/pending',
-            'TranslandShipping\Controllers\ShippingListController@getPendingShipments'
-        );
+        // no frontend routes needed
+    }
 
-        $router->post(
-            'transland/submit-day',
-            'TranslandShipping\Controllers\ShippingListController@submitDailyShipments'
-        );
+    public function mapApi(ApiRouter $apiRouter): void
+    {
+        $apiRouter->version(
+            ['v1'],
+            ['namespace' => 'TranslandShipping\Controllers', 'middleware' => 'oauth'],
+            function (ApiRouter $apiRouter) {
+                // Label-Druck beim Verpacken
+                $apiRouter->post('transland/label', 'LabelController@createLabel');
 
-        $router->post(
-            'transland/shipping-list',
-            'TranslandShipping\Controllers\ShippingListController@submitShippingList'
-        );
-
-        $router->post(
-            'transland/label',
-            'TranslandShipping\Controllers\LabelController@createLabel'
+                // Tagesabschluss / Bordero
+                $apiRouter->post('transland/submit-day', 'ShippingListController@submitDailyShipments');
+                $apiRouter->get('transland/pending', 'ShippingListController@getPendingShipments');
+                $apiRouter->post('transland/shipping-list', 'ShippingListController@submitShippingList');
+            }
         );
     }
 }
