@@ -5,31 +5,16 @@ namespace TranslandShipping\Procedures;
 use Plenty\Modules\EventProcedures\Events\EventProceduresTriggered;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
+use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
 use TranslandShipping\Services\SettingsService;
 
-/**
- * ShippingProcedure
- *
- * Triggered via PlentyMarkets Ereignisaktion (Event Procedure).
- * Registered under: Einrichtung → Aufträge → Ereignisse → Aktionen → Plugins → Transland
- *
- * This is an ALTERNATIVE to the Flow Studio step.
- * It creates a Transland label for the order and stores the shipment for Bordero.
- *
- * Note: This procedure uses the packages already registered on the order
- * via the shipping package repository. If packages are not yet registered
- * at event trigger time, use the Flow Studio REST step instead.
- */
 class ShippingProcedure
 {
     use Loggable;
 
-    /**
-     * Called by the Ereignisaktion event dispatcher.
-     */
     public function run(EventProceduresTriggered $event): void
     {
         /** @var Order $order */
@@ -46,22 +31,20 @@ class ShippingProcedure
             /** @var OrderShippingPackageRepositoryContract $packageRepo */
             $packageRepo = pluginApp(OrderShippingPackageRepositoryContract::class);
 
-            // Load packages registered on this order in Plenty
             $plentyPackages = $packageRepo->listOrderShippingPackages($order->id);
 
             if (empty($plentyPackages)) {
-                $this->getLogger(__CLASS__)->warning('TranslandShipping::ShippingProcedure.noPackages', [
+                $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.noPackages', [
                     'orderId' => $order->id,
                     'message' => 'Keine Packstücke am Auftrag – Label kann nicht erstellt werden.',
                 ]);
                 return;
             }
 
-            // FIX: convert Plenty package models to the array format LabelService expects
             $packages = array_map(function ($pkg) {
                 return [
                     'content'        => 'Waren',
-                    'packaging_type' => '',   // will be resolved from process/settings in LabelController
+                    'packaging_type' => '',
                     'length_cm'      => (int)($pkg->length ?? 0),
                     'width_cm'       => (int)($pkg->width ?? 0),
                     'height_cm'      => (int)($pkg->height ?? 0),
@@ -69,7 +52,6 @@ class ShippingProcedure
                 ];
             }, $plentyPackages);
 
-            // Convert Plenty Order model to array (LabelService works with arrays)
             $orderArray = $this->orderToArray($order);
 
             /** @var SettingsService $settingsService */
@@ -79,9 +61,7 @@ class ShippingProcedure
 
             /** @var LabelService $labelService */
             $labelService = pluginApp(LabelService::class);
-
-            // FIX: pass order array + packages array (not just order ID)
-            $result = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
+            $result       = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
             // SSCC zurück in die Plenty-Pakete schreiben
             $packagesWithSscc = $result['packages'];
@@ -94,15 +74,20 @@ class ShippingProcedure
                 }
             }
 
-            // Store shipment for Bordero submission
+            // Label als Dokument am Auftrag speichern
+            if (!empty($result['label_data'])) {
+                $this->saveLabelAsDocument($order->id, $result['label_data'], $result['sscc_list']);
+            }
+
+            // Sendungsdaten für Bordero speichern
             /** @var ShippingListService $shippingListService */
             $shippingListService = pluginApp(ShippingListService::class);
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
-                'orderId'  => $order->id,
-                'ssccList' => $result['sscc_list'],
-                'hasLabel' => !empty($result['label_data']),
+                'orderId'      => $order->id,
+                'ssccList'     => $result['sscc_list'],
+                'labelSaved'   => !empty($result['label_data']),
             ]);
 
         } catch (\Exception $e) {
@@ -115,22 +100,49 @@ class ShippingProcedure
     }
 
     /**
-     * Convert PlentyMarkets Order model to a plain array
-     * matching the structure expected by PayloadBuilderService.
+     * Save the label PDF as a document on the order.
+     * It will appear under Auftrag → Dokumente in the Plenty backend.
      */
+    private function saveLabelAsDocument(int $orderId, string $base64Pdf, array $ssccList): void
+    {
+        try {
+            /** @var DocumentRepositoryContract $documentRepo */
+            $documentRepo = pluginApp(DocumentRepositoryContract::class);
+
+            $ssccSuffix = !empty($ssccList) ? '_' . $ssccList[0] : '';
+            $filename   = 'Transland_Label_' . $orderId . $ssccSuffix . '.pdf';
+
+            $documentRepo->uploadOrderDocuments($orderId, [
+                [
+                    'content' => $base64Pdf,
+                    'name'    => $filename,
+                ]
+            ]);
+
+            $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
+                'orderId'  => $orderId,
+                'filename' => $filename,
+            ]);
+
+        } catch (\Throwable $e) {
+            // Label-Speicherung ist nicht kritisch – nur loggen
+            $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
+                'orderId' => $orderId,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+    }
+
     private function orderToArray(Order $order): array
     {
-        // Delivery address
         $deliveryAddress = null;
         foreach ($order->addresses as $relation) {
-            // typeId 2 = delivery address in PlentyMarkets
             if (($relation->pivot->typeId ?? null) == 2) {
                 $deliveryAddress = $relation;
                 break;
             }
         }
 
-        // Fallback to billing address (typeId 1)
         if (!$deliveryAddress) {
             foreach ($order->addresses as $relation) {
                 if (($relation->pivot->typeId ?? null) == 1) {
@@ -156,7 +168,6 @@ class ShippingProcedure
             ];
         }
 
-        // Amounts
         $amounts = [];
         foreach (($order->amounts ?? []) as $amount) {
             $amounts[] = [

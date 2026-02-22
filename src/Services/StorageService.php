@@ -36,16 +36,25 @@ class StorageService
         ]);
     }
 
-    public function getPendingShipments(string $pickupDate): array
+    /**
+     * Get pending shipments for a specific date.
+     * If no date given, returns ALL pending shipments regardless of date.
+     */
+    public function getPendingShipments(string $pickupDate = ''): array
     {
-        $records = $this->db()->query(TranslandShipment::class)
-            ->where('pickupDate', '=', $pickupDate)
-            ->where('submitted', '=', 0)
-            ->get();
+        $query = $this->db()->query(TranslandShipment::class)
+            ->where('submitted', '=', 0);
+
+        if (!empty($pickupDate)) {
+            $query = $query->where('pickupDate', '=', $pickupDate);
+        }
+
+        $records = $query->get();
 
         return array_map(function ($record) {
             $data = json_decode($record->shipmentData, true) ?? [];
-            $data['_record_id'] = $record->id;
+            $data['_record_id']  = $record->id;
+            $data['pickup_date'] = $record->pickupDate;
             return $data;
         }, $records);
     }
