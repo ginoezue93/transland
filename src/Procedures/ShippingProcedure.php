@@ -5,6 +5,8 @@ namespace TranslandShipping\Procedures;
 use Plenty\Modules\EventProcedures\Events\EventProceduresTriggered;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
+use Plenty\Modules\Order\Document\Contracts\OrderDocumentRepositoryContract;
+use Plenty\Modules\Authorization\Services\AuthHelper;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
@@ -80,6 +82,11 @@ class ShippingProcedure
                 }
             }
 
+            // Label als Dokument am Auftrag speichern
+            if (!empty($result['label_data'])) {
+                $this->saveLabelAsDocument($order->id, $result['label_data'], $format);
+            }
+
             // Sendungsdaten für Bordero speichern
             /** @var ShippingListService $shippingListService */
             $shippingListService = pluginApp(ShippingListService::class);
@@ -98,6 +105,47 @@ class ShippingProcedure
                 'trace'   => $e->getTraceAsString(),
             ]);
         }
+    }
+
+    /**
+     * Speichert das Label-PDF als Dokument am Auftrag.
+     *
+     * Verwendet AuthHelper::processUnguarded(), da uploadOrderDocuments
+     * Backend-Auth erfordert – auch aus Flow-Studio-Triggern heraus.
+     *
+     * @param int    $orderId
+     * @param string $labelBase64  Reiner base64-String (OHNE "data:application/pdf;base64,"-Prefix)
+     * @param string $format       'PDF' oder 'ZPL'
+     */
+    private function saveLabelAsDocument(int $orderId, string $labelBase64, string $format): void
+    {
+        // Sicherstellen dass kein Data-URI-Prefix vorhanden ist
+        if (strpos($labelBase64, 'base64,') !== false) {
+            $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
+        }
+
+        $filename = 'Transland_Label_' . $orderId . '_' . date('Ymd') . '.pdf';
+
+        /** @var AuthHelper $authHelper */
+        $authHelper = pluginApp(AuthHelper::class);
+
+        $authHelper->processUnguarded(function () use ($orderId, $labelBase64, $filename) {
+            /** @var OrderDocumentRepositoryContract $documentRepo */
+            $documentRepo = pluginApp(OrderDocumentRepositoryContract::class);
+
+            $documentRepo->uploadOrderDocuments($orderId, [
+                [
+                    'content' => $labelBase64,
+                    'name'    => $filename,
+                    'type'    => 'uploaded_file',
+                ]
+            ]);
+        });
+
+        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
+            'orderId'  => $orderId,
+            'filename' => $filename,
+        ]);
     }
 
     private function orderToArray(Order $order): array

@@ -4,7 +4,6 @@ namespace TranslandShipping\Services;
 
 use Plenty\Plugin\Log\Loggable;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
-use Plenty\Modules\Order\Shipping\Package\Models\OrderShippingPackage;
 
 /**
  * LabelService
@@ -12,8 +11,6 @@ use Plenty\Modules\Order\Shipping\Package\Models\OrderShippingPackage;
  * Orchestrates the label-printing step during the packing process.
  * This does NOT register the shipment at Transland.
  * The SSCC returned by Transland is stored as a property on the Plenty package.
- *
- * Called from packing processes: 52, 73, 79, 85, 87
  */
 class LabelService
 {
@@ -38,17 +35,16 @@ class LabelService
      *
      * @param array  $order    PlentyMarkets order data
      * @param array  $packages Package data entered during packing process
-     *                         Each package: [content, packaging_type, length_cm, width_cm, height_cm, weight_gr]
      * @param string $format   'PDF' or 'ZPL'
      * @param array  $options  Optional Sendungsoptionen (codes)
      *
      * @return array{
-     *   label_data: string,   base64 encoded label (PDF or ZPL)
-     *   label_format: string, PDF or ZPL
-     *   packages: array,      packages with SSCC filled in
+     *   label_data: string,
+     *   label_format: string,
+     *   packages: array,
      *   order_id: int,
-     *   sscc_list: string[],  all SSCCs for this shipment
-     *   shipment_data: array  full data snapshot to store in Plenty for later Bordero submission
+     *   sscc_list: string[],
+     *   shipment_data: array
      * }
      */
     public function createLabelForOrder(
@@ -64,34 +60,51 @@ class LabelService
             'packageCount' => count($packages),
         ]);
 
-        // Build the API payload
         $payload = $this->payloadBuilder->buildLabelPayload($order, $packages, $options);
 
-        // Call Transland label API
         $result = $this->apiService->requestLabel($payload, $format);
 
-        // Merge SSCCs back into package data
         $packagesWithSscc = $this->mergeSSCCsIntoPackages($packages, $result['packages']);
 
-        // Build a full data snapshot for later use in the Bordero
-        $settings         = $this->settingsService->getSettings();
+        $settings = $this->settingsService->getSettings();
+
+        // pickup_date: aus den Label-Daten (heute), wird beim Bordero verwendet
+        $pickupDate = date('Y-m-d');
+
+        // Vollständiger Snapshot für späteren Bordero – exakt das Format was die API erwartet
         $fullShipmentData = [
             'order_id'          => $orderId,
+            'pickup_date'       => $pickupDate,
+
+            // Adressen – direkt als fertige Arrays
             'shipper_address'   => $this->payloadBuilder->buildShipperAddress($settings),
             'consignee_address' => $this->payloadBuilder->buildConsigneeAddress($order),
+
+            // loading_address = shipper_address (Abholort = Lager)
+            'loading_address'   => $this->payloadBuilder->buildShipperAddress($settings),
+
+            'procurement'       => false,
             'franking'          => '1',
-            'reference'         => implode(' / ', array_filter([
-                'ORD-' . $orderId,
-                $order['externalOrderId'] ?? null,
-            ])),
-            'value'             => (int)($payload['value'] ?? 0),
+
+            // Referenz: nur die Auftragsnummer (externe ID bevorzugt, sonst interne ID)
+            'reference'         => !empty($order['externalOrderId'])
+                ? $order['externalOrderId']
+                : (string)$orderId,
+
+            // value als String wie API erwartet, in EUR (nicht Cent)
+            'value'             => (string)round(($payload['value'] ?? 0) / 100, 2),
             'value_currency'    => $payload['value_currency'] ?? 'EUR',
+
+            // Gewicht in Gramm
             'weight_gr'         => (int)($payload['weight_gr'] ?? 0),
+
             'options'           => $options,
+
+            // Pakete mit SSCCs
             'packages'          => $this->payloadBuilder->buildPackages($packagesWithSscc),
+
             'texts'             => $payload['texts'] ?? [],
             'label_printed_at'  => date('Y-m-d H:i:s'),
-            'submitted_to_api'  => false, // will be set to true after Bordero submission
         ];
 
         $this->getLogger(__METHOD__)->error('TranslandShipping::label.success', [
@@ -109,9 +122,6 @@ class LabelService
         ];
     }
 
-    /**
-     * Merge SSCCs returned by Transland back into the local package objects.
-     */
     private function mergeSSCCsIntoPackages(array $localPackages, array $apiPackages): array
     {
         foreach ($localPackages as $idx => &$pkg) {

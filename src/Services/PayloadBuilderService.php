@@ -7,14 +7,9 @@ namespace TranslandShipping\Services;
  *
  * Maps PlentyMarkets order/shipment data structures to
  * the Zufall/Transland API JSON format.
- *
- * Packaging type mapping (Plenty → Zufall):
- *   The packing process IDs 52, 73, 79, 85, 87 each may use
- *   different default packaging types, configurable in settings.
  */
 class PayloadBuilderService
 {
-    // Default packaging type map: can be overridden in plugin settings
     private const PACKAGING_TYPE_MAP = [
         'europalette'          => 'FP',
         'einwegpalette'        => 'EP',
@@ -39,10 +34,6 @@ class PayloadBuilderService
         'sonderbehälter'       => 'KB',
     ];
 
-    // Franking: 1 = frei Haus, 2 = unfrei
-    private const FRANKING_FREI_HAUS = '1';
-    private const FRANKING_UNFREI    = '2';
-
     private SettingsService $settingsService;
 
     public function __construct(SettingsService $settingsService)
@@ -54,56 +45,36 @@ class PayloadBuilderService
     // Label payload
     // -------------------------------------------------------------------------
 
-    /**
-     * Build a Shipping object payload for the label endpoint.
-     * Called during the packing process in Plenty.
-     *
-     * @param array $order        PlentyMarkets order data
-     * @param array $packages     Array of package data from packing process
-     * @param array $options      Optional: sendungs-optionen (e.g. avisierung)
-     *
-     * @return array  Ready-to-POST Shipping object
-     */
     public function buildLabelPayload(array $order, array $packages, array $options = []): array
     {
         $settings = $this->settingsService->getSettings();
 
         return [
-            'shipper_address'    => $this->buildShipperAddress($settings),
-            'consignee_address'  => $this->buildConsigneeAddress($order),
-            'pickup_date'        => date('Y-m-d'), // required for label endpoint
-            'franking'           => self::FRANKING_FREI_HAUS,
-            'reference'          => $this->buildReference($order),
-            'value'              => $this->getOrderValue($order),
-            'value_currency'     => $this->getOrderCurrency($order),
-            'weight_gr'          => $this->calculateTotalWeightGram($packages),
-            'options'            => $options,
-            'packages'           => $this->buildPackages($packages),
-            'texts'              => $this->buildTexts($order),
+            'shipper_address'   => $this->buildShipperAddress($settings),
+            'consignee_address' => $this->buildConsigneeAddress($order),
+            'pickup_date'       => date('Y-m-d'),
+            'franking'          => '1',
+            'reference'         => $this->buildReference($order),
+            'value'             => $this->getOrderValue($order),       // int, Cent
+            'value_currency'    => $this->getOrderCurrency($order),
+            'weight_gr'         => $this->calculateTotalWeightGram($packages),
+            'options'           => $options,
+            'packages'          => $this->buildPackages($packages),
+            'texts'             => $this->buildTexts($order),
         ];
     }
 
     // -------------------------------------------------------------------------
-    // Shipping list (Bordero) payload
+    // Bordero payload
     // -------------------------------------------------------------------------
 
-    /**
-     * Build a full Versandliste (Bordero) payload for the shipping-list endpoint.
-     * Called at day-close / Tagesabschluss.
-     *
-     * @param array  $shipments   Array of shipment data (with SSCCs already set)
-     * @param string $pickupDate  Date in format YYYY-MM-DD
-     * @param string $listId      Unique list ID (e.g. date + sequence number)
-     *
-     * @return array  Ready-to-POST Versandliste object
-     */
     public function buildBorderoPayload(array $shipments, string $pickupDate, string $listId): array
     {
         $settings = $this->settingsService->getSettings();
 
         return [
             'customer_id' => $settings['plenty_customer_id_at_transland'],
-            'branch'      => 'TRANSL1',  // Transland Haiger - fixed per documentation
+            'branch'      => 'TRANSL1',
             'list_id'     => $listId,
             'pickup_date' => $pickupDate,
             'shippings'   => array_map(
@@ -114,58 +85,74 @@ class PayloadBuilderService
     }
 
     /**
-     * Build a single Shipping object from data stored in Plenty
-     * (i.e. after the label was already printed and SSCC was saved).
+     * Baut ein einzelnes Shipping-Objekt aus den gespeicherten Daten.
+     * Die gespeicherten Daten (aus LabelService) haben bereits das korrekte Format.
      */
     public function buildShippingObjectFromStoredData(array $shipment): array
     {
-        return [
-            'shipper_address'   => $shipment['shipper_address'],
-            'consignee_address' => $shipment['consignee_address'],
-            'franking'          => $shipment['franking'] ?? self::FRANKING_FREI_HAUS,
-            'reference'         => $shipment['reference'],
-            'value'             => $shipment['value'],
-            'value_currency'    => $shipment['value_currency'] ?? 'EUR',
-            'weight_gr'         => $shipment['weight_gr'],
-            'options'           => $shipment['options'] ?? [],
-            'packages'          => $shipment['packages'], // Must include SSCC!
-            'texts'             => $shipment['texts'] ?? [],
+        $obj = [
+            'shipper_address'   => $shipment['shipper_address']   ?? [],
+            'consignee_address' => $shipment['consignee_address'] ?? [],
+            'loading_address'   => $shipment['loading_address']   ?? $shipment['shipper_address'] ?? [],
+            'pickup_date'       => $shipment['pickup_date']        ?? date('Y-m-d'),
+            'procurement'       => $shipment['procurement']        ?? false,
+            'franking'          => $shipment['franking']           ?? '1',
+            'reference'         => $shipment['reference']          ?? '',
+            'value'             => $shipment['value']              ?? '0',  // string!
+            'value_currency'    => $shipment['value_currency']     ?? 'EUR',
+            'weight_gr'         => (int)($shipment['weight_gr']    ?? 0),
+            'packages'          => $shipment['packages']           ?? [],
         ];
+
+        // Optionale Felder nur einfügen wenn vorhanden
+        if (!empty($shipment['options'])) {
+            $obj['options'] = $shipment['options'];
+        }
+        if (!empty($shipment['texts'])) {
+            $obj['texts'] = $shipment['texts'];
+        }
+
+        return $obj;
     }
 
     // -------------------------------------------------------------------------
     // Address builders
     // -------------------------------------------------------------------------
 
-    /**
-     * Build shipper address from plugin settings (your warehouse/company).
-     */
     public function buildShipperAddress(array $settings): array
     {
-        return [
-            'name1'          => $settings['shipper_name1'] ?? '',
-            'name2'          => $settings['shipper_name2'] ?? '',
-            'street'         => $settings['shipper_street'] ?? '',
-            'country'        => $settings['shipper_country'] ?? 'DE',
-            'zip'            => $settings['shipper_zip'] ?? '',
-            'city'           => $settings['shipper_city'] ?? '',
-            'phone'          => $settings['shipper_phone'] ?? '',
-            'email'          => $settings['shipper_email'] ?? '',
-            'contact_person' => $settings['shipper_contact'] ?? '',
+        $addr = [
+            'name1'  => $settings['shipper_name1']  ?? '',
+            'street' => $settings['shipper_street'] ?? '',
+            'country'=> $settings['shipper_country']?? 'DE',
+            'zip'    => $settings['shipper_zip']    ?? '',
+            'city'   => $settings['shipper_city']   ?? '',
         ];
+
+        // Optionale Felder
+        if (!empty($settings['shipper_name2'])) {
+            $addr['name2'] = $settings['shipper_name2'];
+        }
+        if (!empty($settings['shipper_contact'])) {
+            $addr['contact_person'] = $settings['shipper_contact'];
+        }
+        if (!empty($settings['shipper_phone'])) {
+            $addr['phone'] = $settings['shipper_phone'];
+        }
+        if (!empty($settings['shipper_email'])) {
+            $addr['email'] = $settings['shipper_email'];
+        }
+
+        return $addr;
     }
 
-    /**
-     * Build consignee address from PlentyMarkets order delivery address.
-     */
     public function buildConsigneeAddress(array $order): array
     {
-        // PlentyMarkets delivery address structure
         $delivery = $order['deliveryAddress'] ?? $order['billingAddress'] ?? [];
 
         $name1 = trim(($delivery['company'] ?? '') ?: implode(' ', array_filter([
             $delivery['firstName'] ?? '',
-            $delivery['lastName'] ?? '',
+            $delivery['lastName']  ?? '',
         ])));
 
         $name2 = '';
@@ -173,54 +160,56 @@ class PayloadBuilderService
             $name2 = trim(($delivery['firstName'] ?? '') . ' ' . ($delivery['lastName'] ?? ''));
         }
 
-        return array_filter([
-            'name1'          => substr($name1, 0, 35),
-            'name2'          => substr($name2, 0, 35),
-            'street'         => substr(
-                ($delivery['address1'] ?? '') . ' ' . ($delivery['address2'] ?? ''),
+        $addr = [
+            'name1'   => substr($name1, 0, 35),
+            'street'  => substr(
+                trim(($delivery['address1'] ?? '') . ' ' . ($delivery['address2'] ?? '')),
                 0, 35
             ),
-            'country'        => $delivery['countryId'] ? $this->mapCountryId($delivery['countryId']) : 'DE',
-            'zip'            => substr($delivery['postalCode'] ?? '', 0, 9),
-            'city'           => substr($delivery['town'] ?? '', 0, 35),
-            'contact_person' => substr(
-                ($delivery['firstName'] ?? '') . ' ' . ($delivery['lastName'] ?? ''),
-                0, 256
-            ),
-            'phone'          => substr($delivery['phone'] ?? '', 0, 256),
-            'email'          => substr($delivery['email'] ?? '', 0, 256),
-        ]);
+            'country' => $delivery['countryId'] ? $this->mapCountryId((int)$delivery['countryId']) : 'DE',
+            'zip'     => substr($delivery['postalCode'] ?? '', 0, 9),
+            'city'    => substr($delivery['town'] ?? '', 0, 35),
+        ];
+
+        // Optionale Felder
+        if (!empty($name2)) {
+            $addr['name2'] = substr($name2, 0, 35);
+        }
+        $contactPerson = trim(($delivery['firstName'] ?? '') . ' ' . ($delivery['lastName'] ?? ''));
+        if (!empty($contactPerson)) {
+            $addr['contact_person'] = substr($contactPerson, 0, 256);
+        }
+        if (!empty($delivery['phone'])) {
+            $addr['phone'] = substr($delivery['phone'], 0, 256);
+        }
+        if (!empty($delivery['email'])) {
+            $addr['email'] = substr($delivery['email'], 0, 256);
+        }
+
+        return $addr;
     }
 
     // -------------------------------------------------------------------------
-    // Package builders
+    // Package builder
     // -------------------------------------------------------------------------
 
-    /**
-     * Build packages array from Plenty packing process data.
-     * Note: sscc is left empty here - Transland assigns it and returns it in the label response.
-     *
-     * @param array $packages  Packages from Plenty packing process
-     * @return array
-     */
     public function buildPackages(array $packages): array
     {
         return array_map(function (array $pkg) {
             $built = [
-                'content'          => substr($pkg['content'] ?? 'Waren', 0, 70),
-                'packaging_type'   => $this->mapPackagingType($pkg['packaging_type'] ?? 'FP'),
-                'length_cm'        => (int)($pkg['length_cm'] ?? 0),
-                'width_cm'         => (int)($pkg['width_cm'] ?? 0),
-                'height_cm'        => (int)($pkg['height_cm'] ?? 0),
-                'weight_gr'        => (int)($pkg['weight_gr'] ?? 0),
+                'content'        => substr($pkg['content'] ?? 'Waren', 0, 70),
+                'packaging_type' => $this->mapPackagingType($pkg['packaging_type'] ?? 'FP'),
+                'length_cm'      => (int)($pkg['length_cm']  ?? 0),
+                'width_cm'       => (int)($pkg['width_cm']   ?? 0),
+                'height_cm'      => (int)($pkg['height_cm']  ?? 0),
+                'weight_gr'      => (int)($pkg['weight_gr']  ?? 0),
             ];
 
-            // Optional fields - only include if set
             if (!empty($pkg['sscc'])) {
                 $built['sscc'] = $pkg['sscc'];
             }
             if (!empty($pkg['reference'])) {
-                $built['reference'] = substr($pkg['reference'], 0, 35);
+                $built['package_reference'] = substr($pkg['reference'], 0, 35);
             }
             if (!empty($pkg['sub_packaging_count'])) {
                 $built['sub_packaging_count'] = (int)$pkg['sub_packaging_count'];
@@ -232,22 +221,21 @@ class PayloadBuilderService
     }
 
     // -------------------------------------------------------------------------
-    // Helper methods
+    // Helpers
     // -------------------------------------------------------------------------
 
     private function buildReference(array $order): string
     {
-        // Use order ID + external order number if available
-        $parts = array_filter([
-            isset($order['id']) ? 'ORD-' . $order['id'] : null,
-            $order['externalOrderId'] ?? null,
-        ]);
-        return implode(' / ', $parts);
+        // Externe Auftragsnummer bevorzugen (z.B. "199471"), sonst interne ID
+        if (!empty($order['externalOrderId'])) {
+            return (string)$order['externalOrderId'];
+        }
+        return (string)($order['id'] ?? '');
     }
 
     private function getOrderValue(array $order): int
     {
-        // PlentyMarkets stores order amounts in the amounts array
+        // Gibt den Wert in Cent zurück (wird in LabelService zu String/EUR konvertiert)
         foreach (($order['amounts'] ?? []) as $amount) {
             if (($amount['isNet'] ?? false) === false) {
                 return (int)round(($amount['invoiceTotal'] ?? 0) * 100);
@@ -273,70 +261,34 @@ class PayloadBuilderService
     {
         $texts = [];
         if (!empty($order['notes'])) {
-            // Chunk notes into max 70 char segments as required by API
             $chunks = str_split($order['notes'], 70);
-            $texts  = array_slice($chunks, 0, 5); // reasonable limit
+            $texts  = array_slice($chunks, 0, 5);
         }
         return $texts;
     }
 
-    /**
-     * Map a packaging type string to Zufall API code.
-     * Accepts either the full name or already-short code.
-     */
     private function mapPackagingType(string $type): string
     {
-        $type  = strtolower(trim($type));
-        $upper = strtoupper($type);
-
-        // Already a valid 2-letter code?
+        $upper      = strtoupper(trim($type));
         $validCodes = ['BL','BU','CH','CP','CV','DP','EI','EP','FA','FP','GP','HP','KB','KI','KP','KT','PA','PK','SA','ST','VP'];
+
         if (in_array($upper, $validCodes, true)) {
             return $upper;
         }
 
-        return self::PACKAGING_TYPE_MAP[$type] ?? 'FP'; // Default: Europalette
+        return self::PACKAGING_TYPE_MAP[strtolower(trim($type))] ?? 'FP';
     }
 
-    /**
-     * Map PlentyMarkets country ID to ISO 3166-1 alpha-2 code.
-     * This is a partial mapping - extend as needed.
-     */
     private function mapCountryId(int $countryId): string
     {
         $map = [
-            1  => 'DE', // Germany
-            2  => 'AT', // Austria
-            4  => 'CH', // Switzerland
-            5  => 'CY', // Cyprus
-            6  => 'CZ', // Czech Republic
-            7  => 'DK', // Denmark
-            8  => 'ES', // Spain
-            9  => 'EE', // Estonia
-            10 => 'FR', // France
-            11 => 'FI', // Finland
-            12 => 'BE', // Belgium
-            13 => 'GR', // Greece
-            14 => 'GB', // United Kingdom
-            15 => 'IE', // Ireland
-            17 => 'IT', // Italy
-            18 => 'LV', // Latvia
-            19 => 'LT', // Lithuania
-            20 => 'LU', // Luxembourg
-            21 => 'MT', // Malta
-            22 => 'NL', // Netherlands
-            23 => 'PL', // Poland
-            24 => 'PT', // Portugal
-            25 => 'RO', // Romania
-            26 => 'SE', // Sweden
-            27 => 'SK', // Slovakia
-            28 => 'SI', // Slovenia
-            29 => 'HU', // Hungary
-            34 => 'US', // USA
-            35 => 'CA', // Canada
-            36 => 'AU', // Australia
-            66 => 'NO', // Norway
-            74 => 'TR', // Turkey
+            1 => 'DE', 2 => 'AT', 4 => 'CH', 5 => 'CY', 6 => 'CZ',
+            7 => 'DK', 8 => 'ES', 9 => 'EE', 10 => 'FR', 11 => 'FI',
+            12 => 'BE', 13 => 'GR', 14 => 'GB', 15 => 'IE', 17 => 'IT',
+            18 => 'LV', 19 => 'LT', 20 => 'LU', 21 => 'MT', 22 => 'NL',
+            23 => 'PL', 24 => 'PT', 25 => 'RO', 26 => 'SE', 27 => 'SK',
+            28 => 'SI', 29 => 'HU', 34 => 'US', 35 => 'CA', 36 => 'AU',
+            66 => 'NO', 74 => 'TR',
         ];
 
         return $map[$countryId] ?? 'DE';

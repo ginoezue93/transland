@@ -22,13 +22,16 @@ class ShippingListService
         $this->storageService = $storageService;
     }
 
+    /**
+     * Alle ausstehenden Sendungen als Bordero einreichen.
+     *
+     * WICHTIG: Wenn kein $pickupDate übergeben wird, werden ALLE pending Shipments
+     * unabhängig vom Datum eingereicht (sinnvoll wenn Labels an Vortagen gedruckt wurden).
+     */
     public function submitDailyShipments(string $pickupDate = '', bool $returnList = true): array
     {
-        if (empty($pickupDate)) {
-            $pickupDate = date('Y-m-d');
-        }
-
-        $pendingShipments = $this->storageService->getPendingShipments($pickupDate);
+        // Alle pending Shipments holen (kein Datumsfilter = alles)
+        $pendingShipments = $this->storageService->getPendingShipments('');
 
         if (empty($pendingShipments)) {
             return [
@@ -40,37 +43,65 @@ class ShippingListService
             ];
         }
 
-        $listId = 'LIST-' . date('Ymd') . '-' . time();
+        // pickup_date für den Bordero: entweder übergeben oder heute
+        $borderoDate = !empty($pickupDate) ? $pickupDate : date('Y-m-d');
 
-        $borderoPayload = $this->payloadBuilder->buildBorderoPayload(
-            $pendingShipments,
-            $pickupDate,
-            $listId
-        );
-
-        $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
-
-        if (($apiResponse['result'] ?? '') !== 'ok') {
-            throw new \RuntimeException(
-                'Transland API returned unexpected result: ' . json_encode($apiResponse)
-            );
+        // Sendungen nach pickup_date gruppieren → separate Bordero-Aufrufe pro Tag
+        $grouped = [];
+        foreach ($pendingShipments as $shipment) {
+            $date = $shipment['pickup_date'] ?? $borderoDate;
+            $grouped[$date][] = $shipment;
         }
 
-        $submittedOrderIds = array_column($pendingShipments, 'order_id');
-        $this->storageService->markShipmentsAsSubmitted($submittedOrderIds, $listId);
+        $allSubmittedOrderIds = [];
+        $lastListId           = '';
+        $lastListPDF          = null;
+        $totalCount           = 0;
+
+        foreach ($grouped as $date => $shipments) {
+            $listId = 'LIST-' . str_replace('-', '', $date) . '-' . time();
+
+            $borderoPayload = $this->payloadBuilder->buildBorderoPayload(
+                $shipments,
+                $date,
+                $listId
+            );
+
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.sending', [
+                'pickup_date'    => $date,
+                'shipment_count' => count($shipments),
+                'list_id'        => $listId,
+            ]);
+
+            $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
+
+            if (($apiResponse['result'] ?? '') !== 'ok') {
+                throw new \RuntimeException(
+                    'Transland API returned unexpected result: ' . json_encode($apiResponse)
+                );
+            }
+
+            $submittedOrderIds = array_column($shipments, 'order_id');
+            $this->storageService->markShipmentsAsSubmitted($submittedOrderIds, $listId);
+
+            $allSubmittedOrderIds = array_merge($allSubmittedOrderIds, $submittedOrderIds);
+            $lastListId           = $listId;
+            $lastListPDF          = $apiResponse['listPDF'] ?? null;
+            $totalCount          += count($shipments);
+        }
 
         return [
             'result'              => 'ok',
-            'list_id'             => $listId,
-            'shipment_count'      => count($pendingShipments),
-            'listPDF'             => $apiResponse['listPDF'] ?? null,
-            'submitted_order_ids' => $submittedOrderIds,
+            'list_id'             => $lastListId,
+            'shipment_count'      => $totalCount,
+            'listPDF'             => $lastListPDF,
+            'submitted_order_ids' => $allSubmittedOrderIds,
         ];
     }
 
     public function getPendingShipments(string $date = ''): array
     {
-        return $this->storageService->getPendingShipments($date ?: date('Y-m-d'));
+        return $this->storageService->getPendingShipments($date);
     }
 
     public function storeShipmentAfterLabel(array $shipmentData): void
