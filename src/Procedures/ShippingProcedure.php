@@ -108,21 +108,33 @@ class ShippingProcedure
 
     private function saveLabelAsDocument(int $orderId, string $labelBase64, string $format): void
     {
+        // 1. Bereinigung des Base64 Strings (falls Header vorhanden)
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
 
         $authHelper = pluginApp(AuthHelper::class);
-        $authHelper->processUnguarded(function () use ($orderId, $labelBase64) {
-            pluginApp(DocumentRepositoryContract::class)->uploadOrderDocuments($orderId, 'deliveryNote', [[
-                'displayDate'      => date('Y-m-d H:i:s'),
-                'numberWithPrefix' => 'TL-' . $orderId . '-' . date('Ymd'),
-                'content'          => $labelBase64,
-            ]]);
+        $authHelper->processUnguarded(function () use ($orderId, $labelBase64, $format) {
+            
+            /** @var DocumentRepositoryContract $docRepo */
+            $docRepo = pluginApp(DocumentRepositoryContract::class);
+
+            // 2. Die exakte Struktur für die Validierung
+            $documentData = [
+                'content'      => $labelBase64,                      // Der reine Base64-String
+                'type'         => 'shipping_label',                  // Korrekter technischer Typ
+                'fileType'     => strtolower($format) ?: 'pdf',      // Zwingend erforderlich (pdf, zpl, etc.)
+                'name'         => 'Transland_Label_' . $orderId,     // Anzeigename
+                'displayDate'  => date('c'),                         // ISO 8601 Format empfohlen
+            ];
+
+            // 3. Aufruf als Array von Arrays
+            $docRepo->uploadOrderDocuments($orderId, 'shipping_label', [$documentData]);
         });
 
-        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
+        $this->getLogger(__CLASS__)->info('TranslandShipping::ShippingProcedure.labelSaved', [
             'orderId' => $orderId,
+            'type'    => 'shipping_label'
         ]);
     }
 
