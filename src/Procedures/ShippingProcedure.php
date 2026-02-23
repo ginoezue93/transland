@@ -5,7 +5,7 @@ namespace TranslandShipping\Procedures;
 use Plenty\Modules\EventProcedures\Events\EventProceduresTriggered;
 use Plenty\Modules\Order\Models\Order;
 use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
-use Plenty\Modules\Order\Document\Contracts\OrderDocumentRepositoryContract;
+use Plenty\Modules\Document\Contracts\DocumentRepositoryContract;
 use Plenty\Modules\Authorization\Services\AuthHelper;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
@@ -83,12 +83,11 @@ class ShippingProcedure
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
-                'orderId'               => $order->id,
-                'ssccList'              => $result['sscc_list'],
-                'stored_shipper_name1'  => $result['shipment_data']['shipper_address']['name1']   ?? 'LEER',
-                'stored_consignee_name1'=> $result['shipment_data']['consignee_address']['name1'] ?? 'LEER',
-                'stored_reference'      => $result['shipment_data']['reference'] ?? 'LEER',
-                'stored_package_count'  => count($result['shipment_data']['packages'] ?? []),
+                'orderId'                => $order->id,
+                'ssccList'               => $result['sscc_list'],
+                'stored_shipper_name1'   => $result['shipment_data']['shipper_address']['name1']   ?? 'LEER',
+                'stored_consignee_name1' => $result['shipment_data']['consignee_address']['name1'] ?? 'LEER',
+                'stored_reference'       => $result['shipment_data']['reference'] ?? 'LEER',
             ]);
 
         } catch (\Exception $e) {
@@ -105,98 +104,65 @@ class ShippingProcedure
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
-
         $filename   = 'Transland_Label_' . $orderId . '_' . date('Ymd') . '.pdf';
         $authHelper = pluginApp(AuthHelper::class);
-
         $authHelper->processUnguarded(function () use ($orderId, $labelBase64, $filename) {
-            $documentRepo = pluginApp(OrderDocumentRepositoryContract::class);
-            $documentRepo->uploadOrderDocuments($orderId, [[
+            pluginApp(DocumentRepositoryContract::class)->uploadOrderDocuments($orderId, 'uploaded_file', [[
                 'content' => $labelBase64,
                 'name'    => $filename,
-                'type'    => 'uploaded_file',
             ]]);
         });
-
-        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
-            'orderId'  => $orderId,
-            'filename' => $filename,
-        ]);
     }
 
     private function orderToArray(Order $order): array
     {
-        // Lieferadresse suchen – mehrere Zugriffsmethoden probieren
-        $deliveryAddress = null;
+        // Laut offizieller PlentyONE Shipping-Plugin Dokumentation:
+        // $order->deliveryAddress ist eine direkte Property des Order-Modells.
+        // Felder: street, houseNumber, postalCode, town, countryId, firstName, lastName, companyName
+        // phone/email über address->options (typeId 4 = phone, typeId 5 = email)
 
-        // Methode 1: über addresses-Relation mit typeId
-        if (!empty($order->addresses)) {
-            foreach ($order->addresses as $address) {
-                // typeId kann direkt am Objekt oder über pivot liegen
-                $typeId = null;
-                if (isset($address->pivot) && isset($address->pivot->typeId)) {
-                    $typeId = $address->pivot->typeId;
-                } elseif (isset($address->typeId)) {
-                    $typeId = $address->typeId;
+        $address = $order->deliveryAddress ?? $order->billingAddress ?? null;
+
+        $phone = '';
+        $email = '';
+        if ($address && !empty($address->options)) {
+            foreach ($address->options as $option) {
+                if (($option->typeId ?? 0) == 4) {
+                    $phone = $option->value ?? '';
                 }
-
-                if ($typeId == 2) {  // 2 = Lieferadresse
-                    $deliveryAddress = $address;
-                    break;
+                if (($option->typeId ?? 0) == 5) {
+                    $email = $option->value ?? '';
                 }
-            }
-
-            // Fallback: Rechnungsadresse (typeId 1)
-            if (!$deliveryAddress) {
-                foreach ($order->addresses as $address) {
-                    $typeId = null;
-                    if (isset($address->pivot) && isset($address->pivot->typeId)) {
-                        $typeId = $address->pivot->typeId;
-                    } elseif (isset($address->typeId)) {
-                        $typeId = $address->typeId;
-                    }
-
-                    if ($typeId == 1) {
-                        $deliveryAddress = $address;
-                        break;
-                    }
-                }
-            }
-
-            // Letzter Fallback: einfach erste Adresse nehmen
-            if (!$deliveryAddress && count($order->addresses) > 0) {
-                $deliveryAddress = $order->addresses[0];
             }
         }
 
-        // Adress-Felder auslesen – robust gegen verschiedene Modell-Strukturen
         $addressArray = [];
-        if ($deliveryAddress) {
+        if ($address) {
             $addressArray = [
-                'company'    => $deliveryAddress->companyName ?? $deliveryAddress->company ?? '',
-                'firstName'  => $deliveryAddress->firstName  ?? '',
-                'lastName'   => $deliveryAddress->lastName   ?? '',
-                'address1'   => $deliveryAddress->address1   ?? $deliveryAddress->street ?? '',
-                'address2'   => $deliveryAddress->address2   ?? $deliveryAddress->houseNumber ?? '',
-                'postalCode' => $deliveryAddress->postalCode ?? $deliveryAddress->zipCode ?? '',
-                'town'       => $deliveryAddress->town       ?? $deliveryAddress->city ?? '',
-                'countryId'  => $deliveryAddress->countryId  ?? 1,
-                'phone'      => $deliveryAddress->phone      ?? '',
-                'email'      => $deliveryAddress->email      ?? '',
+                'company'    => $address->companyName ?? '',
+                'firstName'  => $address->firstName   ?? '',
+                'lastName'   => $address->lastName    ?? '',
+                'address1'   => $address->street      ?? '',
+                'address2'   => $address->houseNumber ?? '',
+                'postalCode' => $address->postalCode  ?? '',
+                'town'       => $address->town        ?? '',
+                'countryId'  => $address->countryId   ?? 1,
+                'phone'      => $phone,
+                'email'      => $email,
             ];
         }
 
-        // Diagnose-Log: zeigt was aus dem Auftrag extrahiert wurde
         $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.orderParsed', [
-            'orderId'              => $order->id,
-            'addressFound'         => $deliveryAddress !== null ? 'JA' : 'NEIN – keine Adresse gefunden!',
-            'addressCount'         => count($order->addresses ?? []),
-            'consignee_firstName'  => $addressArray['firstName']  ?? 'LEER',
-            'consignee_lastName'   => $addressArray['lastName']   ?? 'LEER',
-            'consignee_address1'   => $addressArray['address1']   ?? 'LEER',
-            'consignee_postalCode' => $addressArray['postalCode'] ?? 'LEER',
-            'consignee_town'       => $addressArray['town']       ?? 'LEER',
-            'externalOrderId'      => $order->externalOrderId     ?? 'LEER',
+            'orderId'     => $order->id,
+            'hasAddress'  => $address !== null ? 'JA' : 'NEIN',
+            'firstName'   => $addressArray['firstName']  ?? 'LEER',
+            'lastName'    => $addressArray['lastName']   ?? 'LEER',
+            'street'      => $addressArray['address1']   ?? 'LEER',
+            'houseNumber' => $addressArray['address2']   ?? 'LEER',
+            'postalCode'  => $addressArray['postalCode'] ?? 'LEER',
+            'town'        => $addressArray['town']       ?? 'LEER',
+            'phone'       => $phone,
+            'externalId'  => $order->externalOrderId    ?? 'LEER',
         ]);
 
         $amounts = [];
