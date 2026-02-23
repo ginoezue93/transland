@@ -31,7 +31,7 @@ class ShippingListService
     public function submitDailyShipments(string $pickupDate = '', bool $returnList = true): array
     {
         // Alle pending Shipments holen (kein Datumsfilter = alles)
-        $pendingShipments = $this->storageService->getPendingShipments('');
+        $pendingShipments = $this->storageService->getPendingShipments(date('Y-m-d'));
 
         if (empty($pendingShipments)) {
             return [

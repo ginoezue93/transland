@@ -33,30 +33,53 @@ class StorageService
         $this->getLogger(__METHOD__)->error('TranslandShipping::storage.saved', [
             'orderId'    => $record->orderId,
             'pickupDate' => $record->pickupDate,
+            'createdAt'  => $record->createdAt,
         ]);
     }
 
     /**
-     * Get all pending (not yet submitted) shipments.
-     * If $pickupDate is empty, returns ALL pending shipments regardless of date.
+     * Gibt alle pending Shipments zurück – aber nur den jeweils neuesten Record
+     * pro Auftrag (anhand createdAt), und nur Records die nach $newerThan erstellt wurden.
+     *
+     * @param string $newerThan  Datum im Format 'Y-m-d' – nur Records ab diesem Tag.
+     *                           Default: heute. Leer = kein Datumsfilter.
      */
-    public function getPendingShipments(string $pickupDate = ''): array
+    public function getPendingShipments(string $newerThan = ''): array
     {
-        $query = $this->db()->query(TranslandShipment::class)
-            ->where('submitted', '=', 0);
-
-        if (!empty($pickupDate)) {
-            $query = $query->where('pickupDate', '=', $pickupDate);
+        // Standard: nur Records von heute oder neuer
+        if ($newerThan === null) {
+            $newerThan = '';
         }
+        $cutoff = !empty($newerThan) ? $newerThan : date('Y-m-d');
+
+        $query = $this->db()->query(TranslandShipment::class)
+            ->where('submitted', '=', 0)
+            ->where('createdAt', '>=', $cutoff . ' 00:00:00');
 
         $records = $query->get();
 
-        return array_map(function ($record) {
+        if (empty($records)) {
+            return [];
+        }
+
+        // Pro orderId nur den neuesten Record behalten
+        $latestByOrder = [];
+        foreach ($records as $record) {
+            $orderId = $record->orderId;
+            if (
+                !isset($latestByOrder[$orderId]) ||
+                $record->createdAt > $latestByOrder[$orderId]->createdAt
+            ) {
+                $latestByOrder[$orderId] = $record;
+            }
+        }
+
+        return array_values(array_map(function ($record) {
             $data = json_decode($record->shipmentData, true) ?? [];
             $data['_record_id']  = $record->id;
             $data['pickup_date'] = $record->pickupDate;
             return $data;
-        }, $records);
+        }, $latestByOrder));
     }
 
     public function markShipmentsAsSubmitted(array $orderIds, string $listId): void
