@@ -3,15 +3,7 @@
 namespace TranslandShipping\Services;
 
 use Plenty\Plugin\Log\Loggable;
-use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
 
-/**
- * LabelService
- *
- * Orchestrates the label-printing step during the packing process.
- * This does NOT register the shipment at Transland.
- * The SSCC returned by Transland is stored as a property on the Plenty package.
- */
 class LabelService
 {
     use Loggable;
@@ -30,81 +22,68 @@ class LabelService
         $this->settingsService = $settingsService;
     }
 
-    /**
-     * Main entry point: create label for a PlentyMarkets order during packing.
-     *
-     * @param array  $order    PlentyMarkets order data
-     * @param array  $packages Package data entered during packing process
-     * @param string $format   'PDF' or 'ZPL'
-     * @param array  $options  Optional Sendungsoptionen (codes)
-     *
-     * @return array{
-     *   label_data: string,
-     *   label_format: string,
-     *   packages: array,
-     *   order_id: int,
-     *   sscc_list: string[],
-     *   shipment_data: array
-     * }
-     */
     public function createLabelForOrder(
         array $order,
         array $packages,
         string $format = 'PDF',
         array $options = []
     ): array {
-        $orderId = $order['id'];
+        $orderId  = $order['id'];
+        $settings = $this->settingsService->getSettings();
+
+        // Adressen VOR dem API-Call aufbauen
+        $shipperAddress   = $this->payloadBuilder->buildShipperAddress($settings);
+        $consigneeAddress = $this->payloadBuilder->buildConsigneeAddress($order);
 
         $this->getLogger(__METHOD__)->error('TranslandShipping::label.start', [
-            'orderId'      => $orderId,
-            'packageCount' => count($packages),
+            'orderId'          => $orderId,
+            'packageCount'     => count($packages),
+            'shipper_name1'    => $shipperAddress['name1']    ?? 'LEER',
+            'consignee_name1'  => $consigneeAddress['name1']  ?? 'LEER',
         ]);
 
         $payload = $this->payloadBuilder->buildLabelPayload($order, $packages, $options);
-
-        $result = $this->apiService->requestLabel($payload, $format);
+        $result  = $this->apiService->requestLabel($payload, $format);
 
         $packagesWithSscc = $this->mergeSSCCsIntoPackages($packages, $result['packages']);
 
-        $settings = $this->settingsService->getSettings();
+        // Referenz: externe Auftragsnummer bevorzugt, sonst interne ID
+        $reference = !empty($order['externalOrderId'])
+            ? (string)$order['externalOrderId']
+            : (string)$orderId;
 
-        $pickupDate = date('Y-m-d');
+        // Options: Standard-Options wenn keine übergeben
+        $finalOptions = !empty($options)
+            ? $options
+            : $this->payloadBuilder->buildDefaultOptions($order);
 
         $fullShipmentData = [
             'order_id'          => $orderId,
-            'pickup_date'       => $pickupDate,
-
-            // Adressen – direkt als fertige Arrays
-            'shipper_address'   => $this->payloadBuilder->buildShipperAddress($settings),
-            'consignee_address' => $this->payloadBuilder->buildConsigneeAddress($order),
-
-            // loading_address = shipper_address (Abholort = Lager)
-            'loading_address'   => $this->payloadBuilder->buildShipperAddress($settings),
-
+            'pickup_date'       => date('Y-m-d'),
+            'shipper_address'   => $shipperAddress,
+            'consignee_address' => $consigneeAddress,
+            'loading_address'   => $shipperAddress,
             'procurement'       => false,
             'franking'          => '1',
-
-            // Referenz: nur die Auftragsnummer (externe ID bevorzugt, sonst interne ID)
-            'reference'         => !empty($order['externalOrderId'])
-                ? $order['externalOrderId']
-                : (string)$orderId,
-
+            'reference'         => $reference,
+            // value als STRING in EUR (API erwartet "225" nicht 22500)
             'value'             => (string)round(($payload['value'] ?? 0) / 100, 2),
             'value_currency'    => $payload['value_currency'] ?? 'EUR',
-
             'weight_gr'         => (int)($payload['weight_gr'] ?? 0),
-
-            'options'           => !empty($options) ? $options : $this->payloadBuilder->buildDefaultOptions($order),
-
+            'options'           => $finalOptions,
             'packages'          => $this->payloadBuilder->buildPackages($packagesWithSscc),
-
             'texts'             => $payload['texts'] ?? [],
             'label_printed_at'  => date('Y-m-d H:i:s'),
         ];
 
         $this->getLogger(__METHOD__)->error('TranslandShipping::label.success', [
-            'orderId'  => $orderId,
-            'ssccList' => $result['sscc_list'],
+            'orderId'                => $orderId,
+            'ssccList'               => $result['sscc_list'],
+            'stored_shipper_name1'   => $fullShipmentData['shipper_address']['name1']   ?? 'LEER',
+            'stored_consignee_name1' => $fullShipmentData['consignee_address']['name1'] ?? 'LEER',
+            'stored_reference'       => $fullShipmentData['reference'],
+            'stored_package_count'   => count($fullShipmentData['packages']),
+            'stored_value'           => $fullShipmentData['value'],
         ]);
 
         return [
