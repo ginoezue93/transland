@@ -73,11 +73,8 @@ class ShippingListService
         return $this->storageService->getPendingShipments($date ?: date('Y-m-d'));
     }
 
-    /**
-     * Store shipment data + label PDF after label has been printed.
-     */
-    public function storeShipmentAfterLabel(array $shipmentData, string $labelData = ''): void
+    public function storeShipmentAfterLabel(array $shipmentData): void
     {
-        $this->storageService->storeShipment($shipmentData, $labelData);
+        $this->storageService->storeShipment($shipmentData);
     }
 }

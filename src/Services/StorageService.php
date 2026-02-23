@@ -37,8 +37,8 @@ class StorageService
     }
 
     /**
-     * Get pending shipments for a specific date.
-     * If no date given, returns ALL pending shipments regardless of date.
+     * Get all pending (not yet submitted) shipments.
+     * If $pickupDate is empty, returns ALL pending shipments regardless of date.
      */
     public function getPendingShipments(string $pickupDate = ''): array
     {
@@ -74,11 +74,6 @@ class StorageService
                 $this->db()->save($record);
             }
         }
-
-        $this->getLogger(__METHOD__)->error('TranslandShipping::storage.submitted', [
-            'orderIds' => $orderIds,
-            'listId'   => $listId,
-        ]);
     }
 
     public function getSubmissionHistory(string $from, string $to): array

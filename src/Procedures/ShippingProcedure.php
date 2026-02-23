@@ -10,6 +10,12 @@ use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
 use TranslandShipping\Services\SettingsService;
 
+/**
+ * ShippingProcedure
+ *
+ * Triggered via PlentyMarkets Ereignisaktion (Event Procedure).
+ * Registered under: Einrichtung → Aufträge → Ereignisse → Aktionen → Plugins → Transland
+ */
 class ShippingProcedure
 {
     use Loggable;
@@ -20,18 +26,22 @@ class ShippingProcedure
         $order = $event->getOrder();
 
         if (!$order || !$order->id) {
-            $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.noOrder', []);
+            $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.noOrder', [
+                'message' => 'Kein Auftrag gefunden',
+            ]);
             return;
         }
 
         try {
             /** @var OrderShippingPackageRepositoryContract $packageRepo */
-            $packageRepo    = pluginApp(OrderShippingPackageRepositoryContract::class);
+            $packageRepo = pluginApp(OrderShippingPackageRepositoryContract::class);
+
             $plentyPackages = $packageRepo->listOrderShippingPackages($order->id);
 
             if (empty($plentyPackages)) {
-                $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.noPackages', [
+                $this->getLogger(__CLASS__)->warning('TranslandShipping::ShippingProcedure.noPackages', [
                     'orderId' => $order->id,
+                    'message' => 'Keine Packstücke am Auftrag – Label kann nicht erstellt werden.',
                 ]);
                 return;
             }
@@ -56,29 +66,29 @@ class ShippingProcedure
 
             /** @var LabelService $labelService */
             $labelService = pluginApp(LabelService::class);
-            $result       = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
+
+            $result = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
             // SSCC zurück in die Plenty-Pakete schreiben
+            $packagesWithSscc = $result['packages'];
             foreach ($plentyPackages as $idx => $plentyPkg) {
-                if (isset($result['packages'][$idx]['sscc'])) {
+                if (isset($packagesWithSscc[$idx]['sscc'])) {
                     $packageRepo->updateOrderShippingPackage(
                         $plentyPkg->id,
-                        ['packageNumber' => $result['packages'][$idx]['sscc']]
+                        ['packageNumber' => $packagesWithSscc[$idx]['sscc']]
                     );
                 }
             }
 
-            // Sendungsdaten + Label PDF in DB speichern
+            // Sendungsdaten für Bordero speichern
             /** @var ShippingListService $shippingListService */
             $shippingListService = pluginApp(ShippingListService::class);
-            $shippingListService->storeShipmentAfterLabel(
-                $result['shipment_data'],
-                $result['label_data']   // base64 PDF wird jetzt mitgespeichert
-            );
+            $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
                 'orderId'  => $order->id,
                 'ssccList' => $result['sscc_list'],
+                'hasLabel' => !empty($result['label_data']),
             ]);
 
         } catch (\Exception $e) {
@@ -99,6 +109,7 @@ class ShippingProcedure
                 break;
             }
         }
+
         if (!$deliveryAddress) {
             foreach ($order->addresses as $relation) {
                 if (($relation->pivot->typeId ?? null) == 1) {

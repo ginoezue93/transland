@@ -4,7 +4,7 @@
   "author": "Your Company",
   "keywords": ["transland", "zufall", "shipping", "spedition"],
   "description": "Transland Zufall Logistics Speditionsschnittstelle",
-  "email": "service@passform.digital",
+  "email": "info@yourcompany.de",
   "phone": "",
   "homepage": "https://yourcompany.de",
   "version": "3.0.0",
@@ -14,19 +14,10 @@
   "runOnBoot": true,
   "serviceProvider": "TranslandShipping\\Providers\\TranslandServiceProvider",
   "runOnBuild": [
-    "TranslandShipping\\Migrations\\CreateShipmentTable",
-    "TranslandShipping\\Migrations\\AddLabelDataColumnMigration"
+    "TranslandShipping\\Migrations\\CreateShipmentTable"
   ],
   "javaScriptFiles": [],
   "cssFiles": [],
   "containers": [],
-  "dataProviders": [],
-  "pluginMenuEntries": [
-    {
-      "label": "Transland Labels",
-      "menu": "plugins/transland",
-      "urlKey": "transland/labels",
-      "entryPoint": "transland/labels"
-    }
-  ]
+  "dataProviders": []
 }
