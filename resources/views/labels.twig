@@ -23,7 +23,7 @@
             box-shadow: 0 4px 24px rgba(0,0,0,0.08);
             padding: 2.5rem;
             width: 100%;
-            max-width: 480px;
+            max-width: 520px;
         }
 
         .logo {
@@ -44,31 +44,11 @@
         }
 
         .logo-icon svg { fill: white; }
+        .logo-text { font-size: 1.25rem; font-weight: 700; color: #1a1a2e; }
+        .logo-sub  { font-size: 0.75rem; color: #6b7280; margin-top: 1px; }
 
-        .logo-text {
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: #1a1a2e;
-        }
-
-        .logo-sub {
-            font-size: 0.75rem;
-            color: #6b7280;
-            margin-top: 1px;
-        }
-
-        h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #1a1a2e;
-            margin-bottom: 0.5rem;
-        }
-
-        .subtitle {
-            color: #6b7280;
-            font-size: 0.9rem;
-            margin-bottom: 2rem;
-        }
+        h1 { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; margin-bottom: 0.5rem; }
+        .subtitle { color: #6b7280; font-size: 0.9rem; margin-bottom: 2rem; }
 
         .date-row {
             display: flex;
@@ -77,9 +57,7 @@
             align-items: flex-end;
         }
 
-        .field {
-            flex: 1;
-        }
+        .field { flex: 1; }
 
         label {
             display: block;
@@ -102,9 +80,7 @@
             transition: border-color 0.15s;
         }
 
-        input[type="date"]:focus {
-            border-color: #1a5f9e;
-        }
+        input[type="date"]:focus { border-color: #1a5f9e; }
 
         .btn-reload {
             padding: 0.6rem 1rem;
@@ -130,34 +106,18 @@
             gap: 0.75rem;
         }
 
-        .status-box.has-labels {
-            background: #ecfdf5;
-            border: 1.5px solid #6ee7b7;
-        }
+        .status-box.has-labels { background: #ecfdf5; border: 1.5px solid #6ee7b7; }
+        .status-box.no-labels  { background: #fef9ec; border: 1.5px solid #fcd34d; }
 
-        .status-box.no-labels {
-            background: #fef9ec;
-            border: 1.5px solid #fcd34d;
-        }
-
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
         .has-labels .status-dot { background: #10b981; }
         .no-labels .status-dot  { background: #f59e0b; }
 
-        .status-text {
-            font-size: 0.9rem;
-            color: #374151;
-        }
-
+        .status-text { font-size: 0.9rem; color: #374151; }
         .status-text strong { color: #1a1a2e; }
 
-        .btn-print {
+        /* Alle drucken Button */
+        .btn-print-all {
             display: block;
             width: 100%;
             padding: 0.9rem;
@@ -169,24 +129,71 @@
             font-weight: 700;
             cursor: pointer;
             text-align: center;
-            text-decoration: none;
             transition: background 0.15s, transform 0.1s;
-            letter-spacing: 0.01em;
+            margin-bottom: 1rem;
         }
 
-        .btn-print:hover  { background: #15508a; }
-        .btn-print:active { transform: scale(0.98); }
+        .btn-print-all:hover  { background: #15508a; }
+        .btn-print-all:active { transform: scale(0.98); }
 
-        .btn-print.disabled {
-            background: #d1d5db;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-
-        .btn-print svg {
+        .btn-print-all svg {
             vertical-align: middle;
             margin-right: 0.5rem;
             margin-top: -2px;
+        }
+
+        /* Einzelne Labels Liste */
+        .labels-list {
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .label-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .label-row:last-child { border-bottom: none; }
+        .label-row:hover { background: #fafafa; }
+
+        .label-order {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .btn-single {
+            padding: 0.35rem 0.8rem;
+            background: #eff6ff;
+            border: 1.5px solid #bfdbfe;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #1a5f9e;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.15s;
+        }
+
+        .btn-single:hover { background: #dbeafe; }
+
+        .btn-disabled {
+            display: block;
+            width: 100%;
+            padding: 0.9rem;
+            background: #d1d5db;
+            color: #9ca3af;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+            text-align: center;
+            cursor: not-allowed;
         }
 
         .hint {
@@ -234,14 +241,26 @@
             </div>
         </div>
 
-        <a href="/transland/labels/download?date={{ date }}"
-           target="_blank"
-           class="btn-print">
+        <button class="btn-print-all" onclick="printAll()">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white">
                 <path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/>
             </svg>
-            {{ labelCount }} Label{% if labelCount != 1 %}s{% endif %} drucken
-        </a>
+            Alle {{ labelCount }} Labels drucken
+        </button>
+
+        <div class="labels-list">
+            {% for label in labels %}
+            <div class="label-row">
+                <span class="label-order">Auftrag #{{ label.order_id }}</span>
+                <a href="/transland/labels/download?date={{ date }}&order_id={{ label.order_id }}"
+                   target="_blank"
+                   class="btn-single">
+                    Drucken
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+
     {% else %}
         <div class="status-box no-labels">
             <div class="status-dot"></div>
@@ -250,13 +269,35 @@
             </div>
         </div>
 
-        <span class="btn-print disabled">
-            Keine Labels verfügbar
-        </span>
+        <span class="btn-disabled">Keine Labels verfügbar</span>
     {% endif %}
 
-    <p class="hint">Das PDF öffnet sich im Browser – bitte dort drucken (Strg+P / ⌘P).</p>
+    <p class="hint">Jedes PDF öffnet sich im Browser – bitte dort drucken (Strg+P / ⌘P).</p>
 
 </div>
+
+<script>
+    // Collects all order IDs from the page and opens each label PDF
+    // in a new tab with a short delay so the browser doesn't block popups
+    var labelOrderIds = [
+        {% if hasLabels %}
+        {% for label in labels %}{{ label.order_id }}{% if not loop.last %},{% endif %}{% endfor %}
+        {% endif %}
+    ];
+
+    function printAll() {
+        var date = document.getElementById('date').value;
+        var delay = 0;
+        labelOrderIds.forEach(function(orderId) {
+            setTimeout(function() {
+                window.open(
+                    '/transland/labels/download?date=' + date + '&order_id=' + orderId,
+                    '_blank'
+                );
+            }, delay);
+            delay += 600; // 600ms between each tab to avoid popup blockers
+        });
+    }
+</script>
 </body>
 </html>
