@@ -4,10 +4,10 @@
   "author": "Your Company",
   "keywords": ["transland", "zufall", "shipping", "spedition"],
   "description": "Transland Zufall Logistics Speditionsschnittstelle",
-  "email": "info@yourcompany.de",
+  "email": "service@passform.digital",
   "phone": "",
   "homepage": "https://yourcompany.de",
-  "version": "15.0.0",
+  "version": "3.0.0",
   "license": "proprietary",
   "type": "backend",
   "require": [],
@@ -20,5 +20,13 @@
   "javaScriptFiles": [],
   "cssFiles": [],
   "containers": [],
-  "dataProviders": []
+  "dataProviders": [],
+  "pluginMenuEntries": [
+    {
+      "label": "Transland Labels",
+      "menu": "plugins/transland",
+      "urlKey": "transland/labels",
+      "entryPoint": "transland/labels"
+    }
+  ]
 }
