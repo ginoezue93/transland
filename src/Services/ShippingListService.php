@@ -67,10 +67,18 @@ class ShippingListService
                 $listId
             );
 
+            // FULL PAYLOAD LOG – zeigt exakt was an die API gesendet wird
             $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.sending', [
                 'pickup_date'    => $date,
                 'shipment_count' => count($shipments),
                 'list_id'        => $listId,
+                'raw_shipments_from_db' => $shipments,
+                'payload_shippings'     => $borderoPayload['shippings'] ?? [],
+                'first_shipping_keys'   => !empty($borderoPayload['shippings'])
+                    ? array_keys($borderoPayload['shippings'][0])
+                    : [],
+                'first_shipper_address' => $borderoPayload['shippings'][0]['shipper_address'] ?? 'MISSING',
+                'full_payload_json'     => json_encode($borderoPayload),
             ]);
 
             $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
