@@ -68,10 +68,8 @@ class LabelService
 
         $settings = $this->settingsService->getSettings();
 
-        // pickup_date: aus den Label-Daten (heute), wird beim Bordero verwendet
         $pickupDate = date('Y-m-d');
 
-        // Vollständiger Snapshot für späteren Bordero – exakt das Format was die API erwartet
         $fullShipmentData = [
             'order_id'          => $orderId,
             'pickup_date'       => $pickupDate,
@@ -91,16 +89,13 @@ class LabelService
                 ? $order['externalOrderId']
                 : (string)$orderId,
 
-            // value als String wie API erwartet, in EUR (nicht Cent)
             'value'             => (string)round(($payload['value'] ?? 0) / 100, 2),
             'value_currency'    => $payload['value_currency'] ?? 'EUR',
 
-            // Gewicht in Gramm
             'weight_gr'         => (int)($payload['weight_gr'] ?? 0),
 
             'options'           => !empty($options) ? $options : $this->payloadBuilder->buildDefaultOptions($order),
 
-            // Pakete mit SSCCs
             'packages'          => $this->payloadBuilder->buildPackages($packagesWithSscc),
 
             'texts'             => $payload['texts'] ?? [],

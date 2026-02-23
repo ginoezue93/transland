@@ -12,12 +12,6 @@ use TranslandShipping\Services\LabelService;
 use TranslandShipping\Services\ShippingListService;
 use TranslandShipping\Services\SettingsService;
 
-/**
- * ShippingProcedure
- *
- * Triggered via PlentyMarkets Ereignisaktion (Event Procedure).
- * Registered under: Einrichtung → Aufträge → Ereignisse → Aktionen → Plugins → Transland
- */
 class ShippingProcedure
 {
     use Loggable;
@@ -36,14 +30,12 @@ class ShippingProcedure
 
         try {
             /** @var OrderShippingPackageRepositoryContract $packageRepo */
-            $packageRepo = pluginApp(OrderShippingPackageRepositoryContract::class);
-
+            $packageRepo    = pluginApp(OrderShippingPackageRepositoryContract::class);
             $plentyPackages = $packageRepo->listOrderShippingPackages($order->id);
 
             if (empty($plentyPackages)) {
                 $this->getLogger(__CLASS__)->warning('TranslandShipping::ShippingProcedure.noPackages', [
                     'orderId' => $order->id,
-                    'message' => 'Keine Packstücke am Auftrag – Label kann nicht erstellt werden.',
                 ]);
                 return;
             }
@@ -53,7 +45,7 @@ class ShippingProcedure
                     'content'        => 'Waren',
                     'packaging_type' => '',
                     'length_cm'      => (int)($pkg->length ?? 0),
-                    'width_cm'       => (int)($pkg->width ?? 0),
+                    'width_cm'       => (int)($pkg->width  ?? 0),
                     'height_cm'      => (int)($pkg->height ?? 0),
                     'weight_gr'      => (int)($pkg->weight ?? 0),
                 ];
@@ -68,16 +60,14 @@ class ShippingProcedure
 
             /** @var LabelService $labelService */
             $labelService = pluginApp(LabelService::class);
-
-            $result = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
+            $result       = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
             // SSCC zurück in die Plenty-Pakete schreiben
-            $packagesWithSscc = $result['packages'];
             foreach ($plentyPackages as $idx => $plentyPkg) {
-                if (isset($packagesWithSscc[$idx]['sscc'])) {
+                if (isset($result['packages'][$idx]['sscc'])) {
                     $packageRepo->updateOrderShippingPackage(
                         $plentyPkg->id,
-                        ['packageNumber' => $packagesWithSscc[$idx]['sscc']]
+                        ['packageNumber' => $result['packages'][$idx]['sscc']]
                     );
                 }
             }
@@ -93,9 +83,12 @@ class ShippingProcedure
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
-                'orderId'  => $order->id,
-                'ssccList' => $result['sscc_list'],
-                'hasLabel' => !empty($result['label_data']),
+                'orderId'               => $order->id,
+                'ssccList'              => $result['sscc_list'],
+                'stored_shipper_name1'  => $result['shipment_data']['shipper_address']['name1']   ?? 'LEER',
+                'stored_consignee_name1'=> $result['shipment_data']['consignee_address']['name1'] ?? 'LEER',
+                'stored_reference'      => $result['shipment_data']['reference'] ?? 'LEER',
+                'stored_package_count'  => count($result['shipment_data']['packages'] ?? []),
             ]);
 
         } catch (\Exception $e) {
@@ -107,39 +100,22 @@ class ShippingProcedure
         }
     }
 
-    /**
-     * Speichert das Label-PDF als Dokument am Auftrag.
-     *
-     * Verwendet AuthHelper::processUnguarded(), da uploadOrderDocuments
-     * Backend-Auth erfordert – auch aus Flow-Studio-Triggern heraus.
-     *
-     * @param int    $orderId
-     * @param string $labelBase64  Reiner base64-String (OHNE "data:application/pdf;base64,"-Prefix)
-     * @param string $format       'PDF' oder 'ZPL'
-     */
     private function saveLabelAsDocument(int $orderId, string $labelBase64, string $format): void
     {
-        // Sicherstellen dass kein Data-URI-Prefix vorhanden ist
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
 
-        $filename = 'Transland_Label_' . $orderId . '_' . date('Ymd') . '.pdf';
-
-        /** @var AuthHelper $authHelper */
+        $filename   = 'Transland_Label_' . $orderId . '_' . date('Ymd') . '.pdf';
         $authHelper = pluginApp(AuthHelper::class);
 
         $authHelper->processUnguarded(function () use ($orderId, $labelBase64, $filename) {
-            /** @var OrderDocumentRepositoryContract $documentRepo */
             $documentRepo = pluginApp(OrderDocumentRepositoryContract::class);
-
-            $documentRepo->uploadOrderDocuments($orderId, [
-                [
-                    'content' => $labelBase64,
-                    'name'    => $filename,
-                    'type'    => 'uploaded_file',
-                ]
-            ]);
+            $documentRepo->uploadOrderDocuments($orderId, [[
+                'content' => $labelBase64,
+                'name'    => $filename,
+                'type'    => 'uploaded_file',
+            ]]);
         });
 
         $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
@@ -150,45 +126,85 @@ class ShippingProcedure
 
     private function orderToArray(Order $order): array
     {
+        // Lieferadresse suchen – mehrere Zugriffsmethoden probieren
         $deliveryAddress = null;
-        foreach ($order->addresses as $relation) {
-            if (($relation->pivot->typeId ?? null) == 2) {
-                $deliveryAddress = $relation;
-                break;
-            }
-        }
 
-        if (!$deliveryAddress) {
-            foreach ($order->addresses as $relation) {
-                if (($relation->pivot->typeId ?? null) == 1) {
-                    $deliveryAddress = $relation;
+        // Methode 1: über addresses-Relation mit typeId
+        if (!empty($order->addresses)) {
+            foreach ($order->addresses as $address) {
+                // typeId kann direkt am Objekt oder über pivot liegen
+                $typeId = null;
+                if (isset($address->pivot) && isset($address->pivot->typeId)) {
+                    $typeId = $address->pivot->typeId;
+                } elseif (isset($address->typeId)) {
+                    $typeId = $address->typeId;
+                }
+
+                if ($typeId == 2) {  // 2 = Lieferadresse
+                    $deliveryAddress = $address;
                     break;
                 }
             }
+
+            // Fallback: Rechnungsadresse (typeId 1)
+            if (!$deliveryAddress) {
+                foreach ($order->addresses as $address) {
+                    $typeId = null;
+                    if (isset($address->pivot) && isset($address->pivot->typeId)) {
+                        $typeId = $address->pivot->typeId;
+                    } elseif (isset($address->typeId)) {
+                        $typeId = $address->typeId;
+                    }
+
+                    if ($typeId == 1) {
+                        $deliveryAddress = $address;
+                        break;
+                    }
+                }
+            }
+
+            // Letzter Fallback: einfach erste Adresse nehmen
+            if (!$deliveryAddress && count($order->addresses) > 0) {
+                $deliveryAddress = $order->addresses[0];
+            }
         }
 
+        // Adress-Felder auslesen – robust gegen verschiedene Modell-Strukturen
         $addressArray = [];
         if ($deliveryAddress) {
             $addressArray = [
-                'company'    => $deliveryAddress->companyName ?? '',
-                'firstName'  => $deliveryAddress->firstName ?? '',
-                'lastName'   => $deliveryAddress->lastName ?? '',
-                'address1'   => $deliveryAddress->address1 ?? '',
-                'address2'   => $deliveryAddress->address2 ?? '',
-                'postalCode' => $deliveryAddress->postalCode ?? '',
-                'town'       => $deliveryAddress->town ?? '',
-                'countryId'  => $deliveryAddress->countryId ?? 1,
-                'phone'      => $deliveryAddress->phone ?? '',
-                'email'      => $deliveryAddress->email ?? '',
+                'company'    => $deliveryAddress->companyName ?? $deliveryAddress->company ?? '',
+                'firstName'  => $deliveryAddress->firstName  ?? '',
+                'lastName'   => $deliveryAddress->lastName   ?? '',
+                'address1'   => $deliveryAddress->address1   ?? $deliveryAddress->street ?? '',
+                'address2'   => $deliveryAddress->address2   ?? $deliveryAddress->houseNumber ?? '',
+                'postalCode' => $deliveryAddress->postalCode ?? $deliveryAddress->zipCode ?? '',
+                'town'       => $deliveryAddress->town       ?? $deliveryAddress->city ?? '',
+                'countryId'  => $deliveryAddress->countryId  ?? 1,
+                'phone'      => $deliveryAddress->phone      ?? '',
+                'email'      => $deliveryAddress->email      ?? '',
             ];
         }
+
+        // Diagnose-Log: zeigt was aus dem Auftrag extrahiert wurde
+        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.orderParsed', [
+            'orderId'              => $order->id,
+            'addressFound'         => $deliveryAddress !== null ? 'JA' : 'NEIN – keine Adresse gefunden!',
+            'addressCount'         => count($order->addresses ?? []),
+            'consignee_firstName'  => $addressArray['firstName']  ?? 'LEER',
+            'consignee_lastName'   => $addressArray['lastName']   ?? 'LEER',
+            'consignee_address1'   => $addressArray['address1']   ?? 'LEER',
+            'consignee_postalCode' => $addressArray['postalCode'] ?? 'LEER',
+            'consignee_town'       => $addressArray['town']       ?? 'LEER',
+            'externalOrderId'      => $order->externalOrderId     ?? 'LEER',
+        ]);
 
         $amounts = [];
         foreach (($order->amounts ?? []) as $amount) {
             $amounts[] = [
-                'isNet'        => $amount->isNet ?? false,
+                'isNet'        => $amount->isNet        ?? false,
                 'invoiceTotal' => $amount->invoiceTotal ?? 0,
-                'currency'     => $amount->currency ?? 'EUR',
+                'currency'     => $amount->currency     ?? 'EUR',
             ];
         }
 
