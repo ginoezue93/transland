@@ -72,9 +72,16 @@ class ShippingProcedure
                 }
             }
 
-            // Label als Dokument am Auftrag speichern
+            // Label als Dokument am Auftrag speichern (Fehler hier blockieren nicht den Rest)
             if (!empty($result['label_data'])) {
-                $this->saveLabelAsDocument($order->id, $result['label_data'], $format);
+                try {
+                    $this->saveLabelAsDocument($order->id, $result['label_data'], $format);
+                } catch (\Exception $docException) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
+                        'orderId' => $order->id,
+                        'error'   => $docException->getMessage(),
+                    ]);
+                }
             }
 
             // Sendungsdaten für Bordero speichern
@@ -104,14 +111,19 @@ class ShippingProcedure
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
-        $filename   = 'Transland_Label_' . $orderId . '_' . date('Ymd') . '.pdf';
+
         $authHelper = pluginApp(AuthHelper::class);
-        $authHelper->processUnguarded(function () use ($orderId, $labelBase64, $filename) {
-            pluginApp(DocumentRepositoryContract::class)->uploadOrderDocuments($orderId, 'uploaded_file', [[
-                'content' => $labelBase64,
-                'name'    => $filename,
+        $authHelper->processUnguarded(function () use ($orderId, $labelBase64) {
+            pluginApp(DocumentRepositoryContract::class)->uploadOrderDocuments($orderId, 'deliveryNote', [[
+                'displayDate'      => date('Y-m-d H:i:s'),
+                'numberWithPrefix' => 'TL-' . $orderId . '-' . date('Ymd'),
+                'content'          => $labelBase64,
             ]]);
         });
+
+        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
+            'orderId' => $orderId,
+        ]);
     }
 
     private function orderToArray(Order $order): array
