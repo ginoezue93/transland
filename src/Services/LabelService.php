@@ -98,7 +98,7 @@ class LabelService
             // Gewicht in Gramm
             'weight_gr'         => (int)($payload['weight_gr'] ?? 0),
 
-            'options'           => $options,
+            'options'           => !empty($options) ? $options : $this->payloadBuilder->buildDefaultOptions($order),
 
             // Pakete mit SSCCs
             'packages'          => $this->payloadBuilder->buildPackages($packagesWithSscc),

@@ -4,9 +4,6 @@ namespace TranslandShipping\Services;
 
 /**
  * PayloadBuilderService
- *
- * Maps PlentyMarkets order/shipment data structures to
- * the Zufall/Transland API JSON format.
  */
 class PayloadBuilderService
 {
@@ -55,7 +52,7 @@ class PayloadBuilderService
             'pickup_date'       => date('Y-m-d'),
             'franking'          => '1',
             'reference'         => $this->buildReference($order),
-            'value'             => $this->getOrderValue($order),       // int, Cent
+            'value'             => $this->getOrderValue($order),  // int Cent, wird in LabelService umgerechnet
             'value_currency'    => $this->getOrderCurrency($order),
             'weight_gr'         => $this->calculateTotalWeightGram($packages),
             'options'           => $options,
@@ -84,10 +81,6 @@ class PayloadBuilderService
         ];
     }
 
-    /**
-     * Baut ein einzelnes Shipping-Objekt aus den gespeicherten Daten.
-     * Die gespeicherten Daten (aus LabelService) haben bereits das korrekte Format.
-     */
     public function buildShippingObjectFromStoredData(array $shipment): array
     {
         $obj = [
@@ -98,13 +91,12 @@ class PayloadBuilderService
             'procurement'       => $shipment['procurement']        ?? false,
             'franking'          => $shipment['franking']           ?? '1',
             'reference'         => $shipment['reference']          ?? '',
-            'value'             => $shipment['value']              ?? '0',  // string!
+            'value'             => (string)($shipment['value']     ?? '0'),
             'value_currency'    => $shipment['value_currency']     ?? 'EUR',
             'weight_gr'         => (int)($shipment['weight_gr']    ?? 0),
             'packages'          => $shipment['packages']           ?? [],
         ];
 
-        // Optionale Felder nur einfügen wenn vorhanden
         if (!empty($shipment['options'])) {
             $obj['options'] = $shipment['options'];
         }
@@ -122,14 +114,16 @@ class PayloadBuilderService
     public function buildShipperAddress(array $settings): array
     {
         $addr = [
-            'name1'  => $settings['shipper_name1']  ?? '',
-            'street' => $settings['shipper_street'] ?? '',
-            'country'=> $settings['shipper_country']?? 'DE',
-            'zip'    => $settings['shipper_zip']    ?? '',
-            'city'   => $settings['shipper_city']   ?? '',
+            'name1'   => $settings['shipper_name1']  ?? '',
+            'street'  => $settings['shipper_street'] ?? '',
+            'country' => $settings['shipper_country'] ?? 'DE',
+            'zip'     => $settings['shipper_zip']    ?? '',
+            'city'    => $settings['shipper_city']   ?? '',
         ];
 
-        // Optionale Felder
+        if (!empty($settings['plenty_customer_id_at_transland'])) {
+            $addr['external_id'] = $settings['plenty_customer_id_at_transland'];
+        }
         if (!empty($settings['shipper_name2'])) {
             $addr['name2'] = $settings['shipper_name2'];
         }
@@ -162,16 +156,12 @@ class PayloadBuilderService
 
         $addr = [
             'name1'   => substr($name1, 0, 35),
-            'street'  => substr(
-                trim(($delivery['address1'] ?? '') . ' ' . ($delivery['address2'] ?? '')),
-                0, 35
-            ),
-            'country' => $delivery['countryId'] ? $this->mapCountryId((int)$delivery['countryId']) : 'DE',
+            'street'  => substr(trim(($delivery['address1'] ?? '') . ' ' . ($delivery['address2'] ?? '')), 0, 35),
+            'country' => isset($delivery['countryId']) ? $this->mapCountryId((int)$delivery['countryId']) : 'DE',
             'zip'     => substr($delivery['postalCode'] ?? '', 0, 9),
             'city'    => substr($delivery['town'] ?? '', 0, 35),
         ];
 
-        // Optionale Felder
         if (!empty($name2)) {
             $addr['name2'] = substr($name2, 0, 35);
         }
@@ -196,20 +186,28 @@ class PayloadBuilderService
     public function buildPackages(array $packages): array
     {
         return array_map(function (array $pkg) {
+            $lengthCm = (int)($pkg['length_cm'] ?? 0);
+            $widthCm  = (int)($pkg['width_cm']  ?? 0);
+            $heightCm = (int)($pkg['height_cm'] ?? 0);
+
             $built = [
                 'content'        => substr($pkg['content'] ?? 'Waren', 0, 70),
                 'packaging_type' => $this->mapPackagingType($pkg['packaging_type'] ?? 'FP'),
-                'length_cm'      => (int)($pkg['length_cm']  ?? 0),
-                'width_cm'       => (int)($pkg['width_cm']   ?? 0),
-                'height_cm'      => (int)($pkg['height_cm']  ?? 0),
-                'weight_gr'      => (int)($pkg['weight_gr']  ?? 0),
+                'length_cm'      => $lengthCm,
+                'width_cm'       => $widthCm,
+                'height_cm'      => $heightCm,
+                'weight_gr'      => (int)($pkg['weight_gr'] ?? 0),
+                // cubic_cm = Volumen in cm³ (API erwartet dieses Feld)
+                'cubic_cm'       => $lengthCm * $widthCm * $heightCm,
             ];
 
             if (!empty($pkg['sscc'])) {
                 $built['sscc'] = $pkg['sscc'];
             }
-            if (!empty($pkg['reference'])) {
-                $built['package_reference'] = substr($pkg['reference'], 0, 35);
+            // package_reference aus pkg['reference'] oder pkg['package_reference']
+            $pkgRef = $pkg['package_reference'] ?? $pkg['reference'] ?? '';
+            if (!empty($pkgRef)) {
+                $built['package_reference'] = substr((string)$pkgRef, 0, 35);
             }
             if (!empty($pkg['sub_packaging_count'])) {
                 $built['sub_packaging_count'] = (int)$pkg['sub_packaging_count'];
@@ -221,12 +219,47 @@ class PayloadBuilderService
     }
 
     // -------------------------------------------------------------------------
+    // Options builder
+    // -------------------------------------------------------------------------
+
+    /**
+     * Baut die Standard-Optionen für eine Auslieferungssendung.
+     * Wird von LabelService aufgerufen wenn keine manuellen Options übergeben werden.
+     *
+     * 101 = Avisierung per Telefon
+     * 502 = Referenznummer (Auftragsnummer)
+     * TLE = Liftgate/Heckklappenentladung
+     */
+    public function buildDefaultOptions(array $order): array
+    {
+        $options = [];
+
+        $delivery = $order['deliveryAddress'] ?? [];
+        $phone    = $delivery['phone'] ?? '';
+        $ref      = !empty($order['externalOrderId']) ? $order['externalOrderId'] : (string)($order['id'] ?? '');
+
+        // 101: Telefonavisierung wenn Telefonnummer vorhanden
+        if (!empty($phone)) {
+            $options[] = ['code' => '101', 'text' => $phone];
+        }
+
+        // 502: Referenznummer immer setzen
+        if (!empty($ref)) {
+            $options[] = ['code' => '502', 'text' => $ref];
+        }
+
+        // TLE: Liftgate – standardmäßig aktiv (Speditionssendungen brauchen das meist)
+        $options[] = ['code' => 'TLE'];
+
+        return $options;
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
     private function buildReference(array $order): string
     {
-        // Externe Auftragsnummer bevorzugen (z.B. "199471"), sonst interne ID
         if (!empty($order['externalOrderId'])) {
             return (string)$order['externalOrderId'];
         }
@@ -235,7 +268,6 @@ class PayloadBuilderService
 
     private function getOrderValue(array $order): int
     {
-        // Gibt den Wert in Cent zurück (wird in LabelService zu String/EUR konvertiert)
         foreach (($order['amounts'] ?? []) as $amount) {
             if (($amount['isNet'] ?? false) === false) {
                 return (int)round(($amount['invoiceTotal'] ?? 0) * 100);
