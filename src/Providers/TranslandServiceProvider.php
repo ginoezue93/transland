@@ -2,55 +2,33 @@
 
 namespace TranslandShipping\Providers;
 
-use Plenty\Plugin\ServiceProvider;
-use Plenty\Modules\EventProcedures\Services\EventProceduresService;
-use Plenty\Modules\EventProcedures\Services\Entries\ProcedureEntry;
-use TranslandShipping\Services\TranslandApiService;
-use TranslandShipping\Services\LabelService;
-use TranslandShipping\Services\ShippingListService;
-use TranslandShipping\Services\StorageService;
-use TranslandShipping\Services\SettingsService;
-use TranslandShipping\Services\PayloadBuilderService;
-use TranslandShipping\Procedures\ShippingProcedure;
-use TranslandShipping\Procedures\BorderoProcedure;
+use Plenty\Plugin\RouteServiceProvider;
+use Plenty\Plugin\Routing\Router;
+use Plenty\Plugin\Routing\ApiRouter;
 
-class TranslandServiceProvider extends ServiceProvider
+class TranslandRouteServiceProvider extends RouteServiceProvider
 {
-    public function register(): void
+    public function map(Router $router): void
     {
-        $this->getApplication()->register(TranslandRouteServiceProvider::class);
-        $this->getApplication()->bind(ShippingProcedure::class);
-        $this->getApplication()->bind(BorderoProcedure::class);
-        $this->getApplication()->singleton(SettingsService::class);
-        $this->getApplication()->singleton(TranslandApiService::class);
-        $this->getApplication()->singleton(PayloadBuilderService::class);
-        $this->getApplication()->singleton(StorageService::class);
-        $this->getApplication()->singleton(LabelService::class);
-        $this->getApplication()->singleton(ShippingListService::class);
+        // Label-Druck UI (Backend-Seite)
+        $router->get('transland/labels', 'TranslandShipping\Controllers\LabelPrintController@index');
+        $router->get('transland/labels/download', 'TranslandShipping\Controllers\LabelPrintController@download');
     }
 
-    public function boot(EventProceduresService $eventProceduresService): void
+    public function mapApi(ApiRouter $apiRouter): void
     {
-        $eventProceduresService->registerProcedure(
-            'TranslandShipping',
-            ProcedureEntry::EVENT_TYPE_ORDER,
-            [
-                'de' => 'Versandanmeldung an Transland senden',
-                'en' => 'Register shipment with Transland',
-            ],
-            '\TranslandShipping\Procedures\ShippingProcedure@run'
-        );
+        $apiRouter->version(
+            ['v1'],
+            ['namespace' => 'TranslandShipping\Controllers', 'middleware' => 'oauth'],
+            function (ApiRouter $apiRouter) {
+                // Label-Druck beim Verpacken
+                $apiRouter->post('transland/label', 'LabelController@createLabel');
 
-        $eventProceduresService->registerProcedure(
-            'TranslandShipping',
-            ProcedureEntry::EVENT_TYPE_ORDER,
-            [
-                'de' => 'Tagesabschluss an Transland senden (Bordero)',
-                'en' => 'Submit daily Bordero to Transland',
-            ],
-            '\TranslandShipping\Procedures\BorderoProcedure@run'
+                // Tagesabschluss / Bordero
+                $apiRouter->post('transland/submit-day', 'ShippingListController@submitDailyShipments');
+                $apiRouter->get('transland/pending', 'ShippingListController@getPendingShipments');
+                $apiRouter->post('transland/shipping-list', 'ShippingListController@submitShippingList');
+            }
         );
-
-        $this->getApplication()->register(TranslandScheduleProvider::class);
     }
 }

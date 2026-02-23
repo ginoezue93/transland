@@ -11,10 +11,11 @@ use Plenty\Modules\Plugin\DataBase\Contracts\Model;
  * @property string $listId
  * @property bool   $submitted
  * @property string $shipmentData
+ * @property string $labelData
  * @property string $createdAt
  * @property string $updatedAt
  *
- * @Nullable(columns={"listId"})
+ * @Nullable(columns={"listId", "labelData"})
  */
 class TranslandShipment extends Model
 {
@@ -24,6 +25,7 @@ class TranslandShipment extends Model
     public $listId       = '';
     public $submitted    = false;
     public $shipmentData = '';
+    public $labelData    = '';   // base64 PDF label
     public $createdAt    = '';
     public $updatedAt    = '';
 

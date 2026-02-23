@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transland – Labels drucken</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f4f6f9;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 480px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .logo-icon {
+            width: 44px;
+            height: 44px;
+            background: #1a5f9e;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon svg { fill: white; }
+
+        .logo-text {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+
+        .logo-sub {
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin-top: 1px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1a1a2e;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+
+        .date-row {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            align-items: flex-end;
+        }
+
+        .field {
+            flex: 1;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input[type="date"] {
+            width: 100%;
+            padding: 0.6rem 0.9rem;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            color: #1a1a2e;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        input[type="date"]:focus {
+            border-color: #1a5f9e;
+        }
+
+        .btn-reload {
+            padding: 0.6rem 1rem;
+            background: #f3f4f6;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+
+        .btn-reload:hover { background: #e5e7eb; }
+
+        .status-box {
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .status-box.has-labels {
+            background: #ecfdf5;
+            border: 1.5px solid #6ee7b7;
+        }
+
+        .status-box.no-labels {
+            background: #fef9ec;
+            border: 1.5px solid #fcd34d;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .has-labels .status-dot { background: #10b981; }
+        .no-labels .status-dot  { background: #f59e0b; }
+
+        .status-text {
+            font-size: 0.9rem;
+            color: #374151;
+        }
+
+        .status-text strong { color: #1a1a2e; }
+
+        .btn-print {
+            display: block;
+            width: 100%;
+            padding: 0.9rem;
+            background: #1a5f9e;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            transition: background 0.15s, transform 0.1s;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-print:hover  { background: #15508a; }
+        .btn-print:active { transform: scale(0.98); }
+
+        .btn-print.disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .btn-print svg {
+            vertical-align: middle;
+            margin-right: 0.5rem;
+            margin-top: -2px;
+        }
+
+        .hint {
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+
+    <div class="logo">
+        <div class="logo-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                <path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+            </svg>
+        </div>
+        <div>
+            <div class="logo-text">Transland</div>
+            <div class="logo-sub">Versand-Plugin</div>
+        </div>
+    </div>
+
+    <h1>Labels drucken</h1>
+    <p class="subtitle">Alle Versandlabels eines Tages als PDF öffnen und drucken.</p>
+
+    <form method="get" action="/transland/labels">
+        <div class="date-row">
+            <div class="field">
+                <label for="date">Datum</label>
+                <input type="date" id="date" name="date" value="{{ date }}">
+            </div>
+            <button type="submit" class="btn-reload">Laden</button>
+        </div>
+    </form>
+
+    {% if hasLabels %}
+        <div class="status-box has-labels">
+            <div class="status-dot"></div>
+            <div class="status-text">
+                <strong>{{ labelCount }} Label{% if labelCount != 1 %}s{% endif %}</strong>
+                für {{ date }} gefunden.
+            </div>
+        </div>
+
+        <a href="/transland/labels/download?date={{ date }}"
+           target="_blank"
+           class="btn-print">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/>
+            </svg>
+            {{ labelCount }} Label{% if labelCount != 1 %}s{% endif %} drucken
+        </a>
+    {% else %}
+        <div class="status-box no-labels">
+            <div class="status-dot"></div>
+            <div class="status-text">
+                Keine Labels für <strong>{{ date }}</strong> gefunden.
+            </div>
+        </div>
+
+        <span class="btn-print disabled">
+            Keine Labels verfügbar
+        </span>
+    {% endif %}
+
+    <p class="hint">Das PDF öffnet sich im Browser – bitte dort drucken (Strg+P / ⌘P).</p>
+
+</div>
+</body>
+</html>
