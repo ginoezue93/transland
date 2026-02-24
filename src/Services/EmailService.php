@@ -2,32 +2,24 @@
 
 namespace TranslandShipping\Services;
 
-// Die exakten Namespaces für Stable 7 / PlentyONE
+// Der offizielle Stable 7 Contract für den neuen Mail-Builder
 use Plenty\Modules\Mail\Templates\Contracts\Service\EmailService\EmailTemplatesSendServiceContract;
 use Plenty\Plugin\Log\Loggable;
 
 /**
  * Class EmailService
- * @package TranslandShipping\Services
+ * * Behebt den "validation error" durch strikte Einhaltung der 
+ * PlentyONE (Stable 7) Mail-Struktur.
  */
 class EmailService
 {
     use Loggable;
 
-    /**
-     * @var SettingsService
-     */
     private $settingsService;
-
-    /**
-     * @var EmailTemplatesSendServiceContract
-     */
     private $emailSendService;
 
     /**
      * EmailService constructor.
-     * @param SettingsService $settingsService
-     * @param EmailTemplatesSendServiceContract $emailSendService
      */
     public function __construct(
         SettingsService $settingsService,
@@ -38,24 +30,20 @@ class EmailService
     }
 
     /**
-     * Sendet das Versandlabel per E-Mail unter Nutzung des Stable 7 Email-Builders.
-     *
-     * @param string $labelBase64
-     * @param int $orderId
-     * @param string $format
+     * Sendet das Label per E-Mail.
+     * Nutzt die 'sendPreview' Methode, um dynamische Inhalte ohne festes Template zu senden.
      */
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
     {
         $settings = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
-        // Validierung des Empfängers
         if (empty($recipient)) {
             $this->getLogger(__METHOD__)->warning('TranslandShipping::email.no_recipient');
             return;
         }
 
-        // Base64-String bereinigen, falls ein Data-Header mitgeschickt wurde
+        // Base64 bereinigen
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
@@ -66,13 +54,26 @@ class EmailService
 
         try {
             /**
-             * In Stable 7 erwartet sendPreview ein Array, das der REST-API Struktur entspricht.
+             * WICHTIG: Die Struktur muss exakt der Stable 7 Spezifikation entsprechen.
+             * Ein falscher Key (z.B. 'mimeType' statt 'type') führt zum "validation error".
              */
             $mailData = [
-                "from"      => $settings['sender_email'] ?? '', // Empfohlen: Setze eine valide Absender-Adresse
-                "subject"   => 'Transland Label - Auftrag ' . $orderId,
-                "body"      => '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
-                "receivers" => [
+                // 1. Absender-Account (Zwingend erforderlich in Stable 7)
+                // Falls in Settings nicht gesetzt, wird ID 1 (Standard) probiert.
+                "accountId"   => (isset($settings['mail_account_id']) && (int)$settings['mail_account_id'] > 0) 
+                                 ? (int)$settings['mail_account_id'] 
+                                 : 1,
+
+                // 2. Absender-Informationen
+                "fromName"    => "Versandabteilung",
+                "fromAddress" => $settings['sender_email'] ?? '',
+
+                // 3. Inhalt
+                "subject"     => 'Transland Label - Auftrag ' . $orderId,
+                "content"     => '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
+                
+                // 4. Empfänger-Struktur (Striktes Array-Format)
+                "receivers"   => [
                     "to" => [
                         [
                             "email" => $recipient,
@@ -80,21 +81,18 @@ class EmailService
                         ]
                     ]
                 ],
+
+                // 5. Anhänge
                 "attachments" => [
                     [
-                        "content" => $labelBase64, // Base64 kodierter Inhalt
+                        "content" => $labelBase64,
                         "name"    => $filename,
-                        "type"    => $mimeType
+                        "type"    => $mimeType // Stable 7 nutzt oft 'type' für den Mime-Type
                     ]
                 ]
             ];
 
-            // Optionale Account-ID hinzufügen, falls in Settings hinterlegt
-            if (isset($settings['mail_account_id']) && (int)$settings['mail_account_id'] > 0) {
-                $mailData['accountId'] = (int)$settings['mail_account_id'];
-            }
-
-            // Der eigentliche Versand über den neuen Contract
+            // Versand auslösen
             $this->emailSendService->sendPreview($mailData);
 
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', [
@@ -103,12 +101,13 @@ class EmailService
             ]);
 
         } catch (\Throwable $e) {
-            // Detailliertes Logging für den "validation error"
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
-                'message' => $e->getMessage(),
-                'orderId' => $orderId,
-                'file'    => $e->getFile(),
-                'line'    => $e->getLine()
+                'message'    => $e->getMessage(),
+                'orderId'    => $orderId,
+                'sentData'   => [
+                    'recipient' => $recipient,
+                    'accountId' => $mailData['accountId'] ?? 'none'
+                ]
             ]);
         }
     }
