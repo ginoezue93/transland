@@ -59,9 +59,10 @@ class TranslandApiService
         $raw = $this->request('POST', '/label' . $queryParam, $payload);
 
         if (!($raw['success'] ?? false)) {
-            throw new \RuntimeException(
-                'Label API error: ' . ($raw['error'] ?? json_encode($raw))
-            );
+            $this->getLogger(__CLASS__)->error('TranslandShipping::api.labelError', [
+                'error' => $raw['error'] ?? json_encode($raw),
+            ]);
+            return ['packages' => [], 'label_data' => '', 'sscc_list' => []];
         }
 
         $data = $raw['data'];
@@ -94,9 +95,10 @@ class TranslandApiService
         $raw = $this->request('POST', '/shipping-list' . $queryParam, $payload);
 
         if (!($raw['success'] ?? false)) {
-            throw new \RuntimeException(
-                'Shipping-list API error: ' . ($raw['error'] ?? json_encode($raw))
-            );
+            $this->getLogger(__CLASS__)->error('TranslandShipping::api.shippingListError', [
+                'error' => $raw['error'] ?? json_encode($raw),
+            ]);
+            return ['result' => 'error', 'listPDF' => null];
         }
 
         $data = $raw['data'];
@@ -143,10 +145,24 @@ class TranslandApiService
             CURLOPT_TIMEOUT        => 30,
         ]);
 
+        $this->getLogger(__CLASS__)->error('TranslandShipping::api.curlStart', [
+            'url'    => $url,
+            'method' => $method,
+        ]);
+
         $responseBody = curl_exec($ch);
         $httpStatus   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError    = curl_error($ch);
+        $curlErrNo    = curl_errno($ch);
         curl_close($ch);
+
+        $this->getLogger(__CLASS__)->error('TranslandShipping::api.curlDone', [
+            'url'        => $url,
+            'httpStatus' => $httpStatus,
+            'curlErrNo'  => $curlErrNo,
+            'curlError'  => $curlError,
+            'bodyLength' => $responseBody !== false ? strlen($responseBody) : 'FALSE',
+        ]);
 
         if ($responseBody === false) {
             $this->getLogger(__CLASS__)->error('TranslandShipping::api.curlError', [
