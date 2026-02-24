@@ -60,24 +60,20 @@ class EmailService
             $mailData = [
                 // 1. Absender-Account (Zwingend erforderlich in Stable 7)
                 // Falls in Settings nicht gesetzt, wird ID 1 (Standard) probiert.
-                "accountId"   => (isset($settings['mail_account_id']) && (int)$settings['mail_account_id'] > 0) 
-                                 ? (int)$settings['mail_account_id'] 
-                                 : 1,
-
-                // 2. Absender-Informationen
-                "fromName"    => "Versandabteilung",
-                "fromAddress" => $settings['sender_email'] ?? '',
+                "fromAddress" => "test@example.com",
+                "fromName" => "Test System",
+                "accountId" => 1,
 
                 // 3. Inhalt
-                "subject"     => 'Transland Label - Auftrag ' . $orderId,
-                "content"     => '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
-                
+                "subject" => 'Transland Label - Auftrag ' . $orderId,
+                "content" => '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
+
                 // 4. Empfänger-Struktur (Striktes Array-Format)
-                "receivers"   => [
+                "receivers" => [
                     "to" => [
                         [
                             "email" => $recipient,
-                            "name"  => "Transland Logistik"
+                            "name" => "Transland Logistik"
                         ]
                     ]
                 ],
@@ -86,8 +82,8 @@ class EmailService
                 "attachments" => [
                     [
                         "content" => $labelBase64,
-                        "name"    => $filename,
-                        "type"    => $mimeType // Stable 7 nutzt oft 'type' für den Mime-Type
+                        "name" => $filename,
+                        "type" => $mimeType // Stable 7 nutzt oft 'type' für den Mime-Type
                     ]
                 ]
             ];
@@ -96,15 +92,15 @@ class EmailService
             $this->emailSendService->sendPreview($mailData);
 
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', [
-                'orderId'   => $orderId,
+                'orderId' => $orderId,
                 'recipient' => $recipient
             ]);
 
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
-                'message'    => $e->getMessage(),
-                'orderId'    => $orderId,
-                'sentData'   => [
+                'message' => $e->getMessage(),
+                'orderId' => $orderId,
+                'sentData' => [
                     'recipient' => $recipient,
                     'accountId' => $mailData['accountId'] ?? 'none'
                 ]
