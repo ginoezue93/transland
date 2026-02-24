@@ -70,20 +70,20 @@ class StorageService
      */
     public static function calcPickupDate(string $fromDate = ''): string
     {
-        $base = !empty($fromDate) ? new \DateTime($fromDate) : new \DateTime();
-        $dow  = (int)$base->format('N'); // 1=Mo, 5=Fr, 6=Sa, 7=So
+        $ts  = !empty($fromDate) ? strtotime($fromDate) : time();
+        $dow = (int)date('N', $ts); // 1=Mo, 5=Fr, 6=Sa, 7=So
 
         if ($dow === 5) {
-            $base->modify('+3 days'); // Freitag -> Montag
+            $ts = strtotime('+3 days', $ts); // Freitag -> Montag
         } elseif ($dow === 6) {
-            $base->modify('+2 days'); // Samstag -> Montag
+            $ts = strtotime('+2 days', $ts); // Samstag -> Montag
         } elseif ($dow === 7) {
-            $base->modify('+1 day');  // Sonntag -> Montag
+            $ts = strtotime('+1 day',  $ts); // Sonntag -> Montag
         } else {
-            $base->modify('+1 day');  // Mo-Do -> nächster Tag
+            $ts = strtotime('+1 day',  $ts); // Mo-Do -> nächster Tag
         }
 
-        return $base->format('Y-m-d');
+        return date('Y-m-d', $ts);
     }
 
     public function getPendingShipments(string $newerThan = ''): array

@@ -59,7 +59,7 @@ class LabelService
 
         $fullShipmentData = [
             'order_id'          => $orderId,
-            'pickup_date'       => date('Y-m-d'),
+            'pickup_date'       => \TranslandShipping\Services\StorageService::calcPickupDate(),
             'shipper_address'   => $shipperAddress,
             'consignee_address' => $consigneeAddress,
             'loading_address'   => $shipperAddress,
