@@ -2,13 +2,13 @@
 
 namespace TranslandShipping\Migrations;
 
-use TranslandShipping\Models\TranslandShipment;
+use TranslandShipping\Models\TranslandShipmentV3;
 use Plenty\Modules\Plugin\DataBase\Contracts\Migrate;
 
-class CreateShipmentTable
+class CreateShipmentTableV2
 {
     public function run(Migrate $migrate): void
     {
-        $migrate->createTable(TranslandShipment::class);
+        $migrate->createTable(TranslandShipmentV3::class);
     }
 }
