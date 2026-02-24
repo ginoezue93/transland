@@ -4,7 +4,7 @@ namespace TranslandShipping\Services;
 
 use Plenty\Modules\Plugin\DataBase\Contracts\DataBase;
 use Plenty\Plugin\Log\Loggable;
-use TranslandShipping\Models\TranslandShipmentV2;
+use TranslandShipping\Models\Shipment;
 
 class StorageService
 {
@@ -17,8 +17,8 @@ class StorageService
 
     public function storeShipment(array $shipmentData): void
     {
-        /** @var TranslandShipment $record */
-        $record = pluginApp(TranslandShipmentV2::class);
+        /** @var Shipment $record */
+        $record = pluginApp(Shipment::class);
 
         $record->orderId    = (int)($shipmentData['order_id'] ?? 0);
         $record->pickupDate = $shipmentData['pickup_date'] ?? date('Y-m-d');
@@ -85,7 +85,7 @@ class StorageService
     {
         $cutoff = !empty($newerThan) ? $newerThan : date('Y-m-d');
 
-        $records = $this->db()->query(TranslandShipmentV2::class)
+        $records = $this->db()->query(Shipment::class)
             ->where('submitted', '=', 0)
             ->where('createdAt', '>=', $cutoff . ' 00:00:00')
             ->get();
@@ -117,7 +117,7 @@ class StorageService
     public function markShipmentsAsSubmitted(array $orderIds, string $listId): void
     {
         foreach ($orderIds as $orderId) {
-            $records = $this->db()->query(TranslandShipmentV2::class)
+            $records = $this->db()->query(Shipment::class)
                 ->where('orderId', '=', (int)$orderId)
                 ->where('submitted', '=', 0)
                 ->get();
@@ -136,7 +136,7 @@ class StorageService
      */
     public function purgeInvalidRecords(): int
     {
-        $records = $this->db()->query(TranslandShipmentV2::class)
+        $records = $this->db()->query(Shipment::class)
             ->where('submitted', '=', 0)
             ->get();
 
@@ -157,7 +157,7 @@ class StorageService
 
     public function getSubmissionHistory(string $from, string $to): array
     {
-        return $this->db()->query(TranslandShipmentV2::class)
+        return $this->db()->query(Shipment::class)
             ->where('pickupDate', '>=', $from)
             ->where('pickupDate', '<=', $to)
             ->where('submitted', '=', 1)
