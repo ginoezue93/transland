@@ -2,8 +2,8 @@
 
 namespace TranslandShipping\Services;
 
-use Plenty\Modules\Mail\Contracts\MailerContract;
 use Plenty\Plugin\Log\Loggable;
+use Plenty\Modules\Mail\Contracts\MailerContract;
 
 class EmailService
 {
@@ -18,44 +18,52 @@ class EmailService
 
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
     {
-        $settings = $this->settingsService->getSettings();
+        $settings  = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
         if (empty($recipient)) {
-            $this->getLogger(__METHOD__)->warning('TranslandShipping::email.no_recipient');
             return;
         }
 
+        // Base64-Prefix entfernen falls vorhanden
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
 
         $extension = strtolower($format) === 'zpl' ? 'zpl' : 'pdf';
-        $filename = 'label-auftrag-' . $orderId . '.' . $extension;
+        $filename  = 'label-auftrag-' . $orderId . '.' . $extension;
+        $date      = date('d.m.Y H:i');
+        $subject   = 'Transland Label - Auftrag ' . $orderId . ' (' . $date . ')';
+        $body      = '<p>Anbei das Versandlabel fuer Auftrag <strong>' . $orderId . '</strong>.</p><p>Erstellt am: ' . $date . '</p>';
 
         try {
             /** @var MailerContract $mailer */
             $mailer = pluginApp(MailerContract::class);
 
-            // In PlentyONE wird die Mail über ein Array-basiertes Design beim MailerContract versendet
-            $mailer->send([
-                'to' => $recipient,
-                'subject' => 'Transland Label – Auftrag ' . $orderId,
-                'contentHtml' => '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
-                'attachments' => [
+            $mailer->sendTo(
+                $recipient,
+                $subject,
+                $body,
+                [
                     [
-                        'base64Data' => $labelBase64, // Manche Versionen erwarten Rohdaten, manche Base64
-                        'name' => $filename,
-                        'mimeType' => ($extension === 'pdf') ? 'application/pdf' : 'text/plain'
+                        'data'     => base64_decode($labelBase64),
+                        'name'     => $filename,
+                        'mimeType' => 'application/pdf',
                     ]
                 ]
-            ]);
+            );
 
-            $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
+            $this->getLogger(__METHOD__)->error('TranslandShipping::email.sent', [
+                'orderId'   => $orderId,
+                'recipient' => $recipient,
+            ]);
 
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
-                'message' => $e->getMessage()
+                'orderId'   => $orderId,
+                'recipient' => $recipient,
+                'error'     => $e->getMessage(),
+                'class'     => get_class($e),
             ]);
         }
     }
