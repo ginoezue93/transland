@@ -2,19 +2,22 @@
 
 namespace TranslandShipping\Services;
 
-use Plenty\Modules\Mail\Templates\Contracts\MailService; // Stable7 Pfad
-use Plenty\Modules\Mail\Templates\Contracts\MailFactory; // Zum Erstellen der Mail
+use Plenty\Modules\Mail\Contracts\MailRepositoryContract;
+use Plenty\Modules\Mail\Models\Mail;
 use Plenty\Plugin\Log\Loggable;
 
 class EmailService
 {
     use Loggable;
 
-    private SettingsService $settingsService;
+    private $settingsService;
+    private $mailRepository;
 
-    public function __construct(SettingsService $settingsService)
+    // Nutze Dependency Injection für das Repository
+    public function __construct(SettingsService $settingsService, MailRepositoryContract $mailRepository)
     {
         $this->settingsService = $settingsService;
+        $this->mailRepository = $mailRepository;
     }
 
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
@@ -36,35 +39,37 @@ class EmailService
         $filename = 'label-auftrag-' . $orderId . '.' . $extension;
 
         try {
-            // In Stable7 wird die Mail über eine Factory erzeugt
-            /** @var MailFactory $mailFactory */
-            $mailFactory = pluginApp(MailFactory::class);
+            /** @var Mail $mail */
+            $mail = pluginApp(Mail::class);
 
-            // In Stable7 wird der Versand über den MailService abgewickelt
-            /** @var MailService $mailService */
-            $mailService = pluginApp(MailService::class);
+            // Empfänger als Array von Objekten setzen
+            $mail->recipients = [[
+                'email' => $recipient,
+                'name'  => 'Transland Logistik'
+            ]];
+            
+            $mail->subject = 'Transland Label - Auftrag ' . $orderId;
+            $mail->contentHtml = '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>';
+            
+            // Absender-Infos (Optional, falls nicht über Standard-Konto)
+            // $mail->senderEmail = "info@deinshop.de";
 
-            $mail = $mailFactory->create();
-            $mail->setToEmail($recipient);
-            $mail->setSubject('Transland Label - Auftrag ' . $orderId);
-            $mail->setHtmlContent('<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>');
+            // Anhang hinzufügen: In Stable7 ist das Feld 'attachments' ein Array
+            $mail->attachments = [[
+                'content'  => base64_decode($labelBase64),
+                'name'     => $filename,
+                'mimeType' => ($extension === 'pdf') ? 'application/pdf' : 'text/plain'
+            ]];
 
-            // Anhang hinzufügen
-            $mail->addAttachment(
-                base64_decode($labelBase64),
-                $filename,
-                ($extension === 'pdf') ? 'application/pdf' : 'text/plain'
-            );
-
-            // Senden
-            $mailService->send($mail);
+            // Senden über das Repository
+            $this->mailRepository->sendMail($mail);
 
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
 
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
                 'message' => $e->getMessage(),
-                'trace' => substr($e->getTraceAsString(), 0, 200)
+                'trace'   => substr($e->getTraceAsString(), 0, 200)
             ]);
         }
     }
