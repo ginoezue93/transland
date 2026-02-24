@@ -44,23 +44,23 @@ class StorageService
             'raw_json'             => substr($encoded ?: '{}', 0, 500),
         ]);
 
-        $this->db()->save($record);
-
-        // Verifizieren was wirklich gespeichert wurde
-        $decoded = json_decode($record->shipmentData, true) ?? [];
-
+        // Log VOR dem Save – zeigt was wirklich in die DB geschrieben wird
+        $decodedBeforeSave = json_decode($encoded, true) ?? [];
         $this->getLogger(__METHOD__)->error('TranslandShipping::storage.saved', [
             'orderId'             => $record->orderId,
             'pickupDate'          => $record->pickupDate,
+            'table'               => $record->getTableName(),
             'json_encode_ok'      => ($encoded !== false && $encoded !== '{}') ? 'JA' : 'FEHLER',
-            'has_shipper_address' => !empty($decoded['shipper_address']) ? 'JA' : 'NEIN',
-            'shipper_name1'       => $decoded['shipper_address']['name1'] ?? 'LEER',
-            'has_consignee'       => !empty($decoded['consignee_address']) ? 'JA' : 'NEIN',
-            'consignee_name1'     => $decoded['consignee_address']['name1'] ?? 'LEER',
-            'reference'           => $decoded['reference'] ?? 'LEER',
-            'package_count'       => count($decoded['packages'] ?? []),
-            'shipmentData_length' => strlen($record->shipmentData),
+            'has_shipper_address' => !empty($decodedBeforeSave['shipper_address']) ? 'JA' : 'NEIN',
+            'shipper_name1'       => $decodedBeforeSave['shipper_address']['name1'] ?? 'LEER',
+            'has_consignee'       => !empty($decodedBeforeSave['consignee_address']) ? 'JA' : 'NEIN',
+            'consignee_name1'     => $decodedBeforeSave['consignee_address']['name1'] ?? 'LEER',
+            'reference'           => $decodedBeforeSave['reference'] ?? 'LEER',
+            'package_count'       => count($decodedBeforeSave['packages'] ?? []),
+            'shipmentData_length' => strlen($encoded),
         ]);
+
+        $this->db()->save($record);
     }
 
     /**
