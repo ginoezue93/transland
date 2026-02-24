@@ -17,7 +17,7 @@ use Plenty\Modules\Plugin\DataBase\Contracts\Model;
  * @Nullable(columns={"listId"})
  * @Column(name="shipmentData", type="text")
  */
-class TranslandShipmentV2 extends Model
+class TranslandShipmentV3 extends Model
 {
     protected $primaryKey = 'id';
 
@@ -32,6 +32,6 @@ class TranslandShipmentV2 extends Model
 
     public function getTableName(): string
     {
-        return 'TranslandShipping::ShipmentV2';
+        return 'TranslandShipping::ShipmentV3';
     }
 }
