@@ -69,6 +69,7 @@ class ShippingListService
 
             // FULL PAYLOAD LOG – zeigt exakt was an die API gesendet wird
             $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.sending', [
+                'plugin_version' => '3.5.0',
                 'pickup_date'    => $date,
                 'shipment_count' => count($shipments),
                 'list_id'        => $listId,

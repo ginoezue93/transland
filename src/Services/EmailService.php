@@ -2,7 +2,6 @@
 
 namespace TranslandShipping\Services;
 
-use Plenty\Modules\Mail\Contracts\MailerContractFactory;
 use Plenty\Plugin\Log\Loggable;
 
 class EmailService
@@ -16,17 +15,23 @@ class EmailService
         $this->settingsService = $settingsService;
     }
 
-    /**
-     * Sendet das Label-PDF per Email.
-     * Wird direkt nach dem Label-Druck aufgerufen.
-     */
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
     {
-        $settings = $this->settingsService->getSettings();
+        $this->getLogger(__METHOD__)->error('TranslandShipping::email.called', [
+            'orderId' => $orderId,
+            'format'  => $format,
+        ]);
+
+        $settings  = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
+        $this->getLogger(__METHOD__)->error('TranslandShipping::email.recipient', [
+            'recipient' => $recipient,
+            'empty'     => empty($recipient) ? 'JA' : 'NEIN',
+        ]);
+
         if (empty($recipient)) {
-            return; // Kein Versand konfiguriert
+            return;
         }
 
         // Base64-Prefix entfernen falls vorhanden
@@ -34,35 +39,56 @@ class EmailService
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
 
-        $extension  = strtolower($format) === 'zpl' ? 'zpl' : 'pdf';
-        $filename   = 'label-auftrag-' . $orderId . '.' . $extension;
-        $mimeType   = $extension === 'pdf' ? 'application/pdf' : 'application/octet-stream';
-        $date       = date('d.m.Y H:i');
+        $extension = strtolower($format) === 'zpl' ? 'zpl' : 'pdf';
+        $filename  = 'label-auftrag-' . $orderId . '.' . $extension;
+        $date      = date('d.m.Y H:i');
+
+        try {
+            $transport = pluginApp(\Plenty\Modules\Mail\Contracts\MailMessageContract::class);
+
+            $this->getLogger(__METHOD__)->error('TranslandShipping::email.transport_created', [
+                'class' => get_class($transport),
+            ]);
+
+        } catch (\Throwable $e) {
+            $this->getLogger(__METHOD__)->error('TranslandShipping::email.transport_error', [
+                'error' => $e->getMessage(),
+                'class' => 'Plenty\\Modules\\Mail\\Contracts\\MailMessageContract',
+            ]);
+        }
 
         try {
             /** @var \Plenty\Modules\Mail\Contracts\MailerContract $mailer */
-            $mailer = pluginApp(MailerContractFactory::class)->create();
+            $mailer = pluginApp(\Plenty\Modules\Mail\Contracts\MailerContract::class);
 
-            $mailer->to($recipient)
-                ->subject('Transland Label – Auftrag ' . $orderId . ' (' . $date . ')')
-                ->html(
-                    '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>' .
-                    '<p>Erstellt am: ' . $date . '</p>'
-                )
-                ->attachData(base64_decode($labelBase64), $filename, $mimeType)
-                ->send();
+            $this->getLogger(__METHOD__)->error('TranslandShipping::email.mailer_created', [
+                'class' => get_class($mailer),
+            ]);
+
+            $mailer->sendTo(
+                $recipient,
+                'Transland Label – Auftrag ' . $orderId . ' (' . $date . ')',
+                '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
+                [
+                    [
+                        'data'     => base64_decode($labelBase64),
+                        'name'     => $filename,
+                        'mimeType' => 'application/pdf',
+                    ]
+                ]
+            );
 
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.sent', [
                 'orderId'   => $orderId,
                 'recipient' => $recipient,
-                'filename'  => $filename,
             ]);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
                 'orderId'   => $orderId,
                 'recipient' => $recipient,
                 'error'     => $e->getMessage(),
+                'trace'     => substr($e->getTraceAsString(), 0, 500),
             ]);
         }
     }
