@@ -11,9 +11,6 @@
   "license": "proprietary",
   "type": "backend",
   "require": [
-    {
-      "plenty-mail": "*"
-    }
   ],
   "runOnBoot": true,
   "serviceProvider": "TranslandShipping\\Providers\\TranslandServiceProvider",
