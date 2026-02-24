@@ -5,6 +5,8 @@ namespace TranslandShipping\Services;
 use Plenty\Modules\Plugin\DataBase\Contracts\DataBase;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Models\Shipment;
+use TranslandShipping\Services\SettingsService;
+use TranslandShipping\Services\PayloadBuilderService;
 
 class StorageService
 {
