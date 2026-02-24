@@ -187,16 +187,14 @@ class TranslandApiService
             ];
         }
 
-        $decoded      = json_decode($responseBody, true);
-        $jsonLastError = json_last_error();
+        $decoded = json_decode($responseBody, true);
 
         $this->getLogger(__CLASS__)->error('TranslandShipping::api.response', [
             'url'          => $url,
             'status'       => $httpStatus,
-            'jsonError'    => $jsonLastError,
             'decodedKeys'  => is_array($decoded) ? array_keys($decoded) : 'NOT_ARRAY',
-            'result_field' => $decoded['result'] ?? 'MISSING',
-            'has_listPDF'  => isset($decoded['listPDF']) ? 'JA (' . strlen($decoded['listPDF']) . ' chars)' : 'NEIN',
+            'result_field' => $decoded['result'] ?? $decoded['status'] ?? 'MISSING',
+            'has_listPDF'  => isset($decoded['listPDF']) ? 'JA' : 'NEIN',
         ]);
 
         return [
