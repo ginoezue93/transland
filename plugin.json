@@ -2,19 +2,25 @@
   "name": "TranslandShipping",
   "namespace": "TranslandShipping",
   "author": "Your Company",
-  "keywords": ["transland", "zufall", "shipping", "spedition"],
+  "keywords": [
+    "transland",
+    "zufall",
+    "shipping",
+    "spedition"
+  ],
   "description": "Transland Zufall Logistics Speditionsschnittstelle",
   "email": "info@yourcompany.de",
   "phone": "",
   "homepage": "https://yourcompany.de",
-  "version": "22.0.0",
+  "version": "3.1.0",
   "license": "proprietary",
   "type": "backend",
   "require": [],
   "runOnBoot": true,
   "serviceProvider": "TranslandShipping\\Providers\\TranslandServiceProvider",
   "runOnBuild": [
-    "TranslandShipping\\Migrations\\CreateShipmentTable"
+    "TranslandShipping\\Migrations\\CreateShipmentTable",
+    "TranslandShipping\\Migrations\\CreateShipmentTableV2"
   ],
   "javaScriptFiles": [],
   "cssFiles": [],

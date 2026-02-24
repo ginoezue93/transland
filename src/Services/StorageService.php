@@ -4,7 +4,7 @@ namespace TranslandShipping\Services;
 
 use Plenty\Modules\Plugin\DataBase\Contracts\DataBase;
 use Plenty\Plugin\Log\Loggable;
-use TranslandShipping\Models\TranslandShipment;
+use TranslandShipping\Models\TranslandShipmentV2;
 
 class StorageService
 {
@@ -18,7 +18,7 @@ class StorageService
     public function storeShipment(array $shipmentData): void
     {
         /** @var TranslandShipment $record */
-        $record = pluginApp(TranslandShipment::class);
+        $record = pluginApp(TranslandShipmentV2::class);
 
         $record->orderId    = (int)($shipmentData['order_id'] ?? 0);
         $record->pickupDate = $shipmentData['pickup_date'] ?? date('Y-m-d');
@@ -37,6 +37,12 @@ class StorageService
         }
 
         $record->shipmentData = $encoded ?: '{}';
+
+        // DIAGNOSE: Zeigt was tatsächlich gespeichert wird
+        $this->getLogger(__METHOD__)->error('TranslandShipping::storage.raw', [
+            'keys_in_shipmentData' => array_keys($shipmentData),
+            'raw_json'             => substr($encoded ?: '{}', 0, 500),
+        ]);
 
         $this->db()->save($record);
 
@@ -79,7 +85,7 @@ class StorageService
     {
         $cutoff = !empty($newerThan) ? $newerThan : date('Y-m-d');
 
-        $records = $this->db()->query(TranslandShipment::class)
+        $records = $this->db()->query(TranslandShipmentV2::class)
             ->where('submitted', '=', 0)
             ->where('createdAt', '>=', $cutoff . ' 00:00:00')
             ->get();
@@ -111,7 +117,7 @@ class StorageService
     public function markShipmentsAsSubmitted(array $orderIds, string $listId): void
     {
         foreach ($orderIds as $orderId) {
-            $records = $this->db()->query(TranslandShipment::class)
+            $records = $this->db()->query(TranslandShipmentV2::class)
                 ->where('orderId', '=', (int)$orderId)
                 ->where('submitted', '=', 0)
                 ->get();
@@ -130,7 +136,7 @@ class StorageService
      */
     public function purgeInvalidRecords(): int
     {
-        $records = $this->db()->query(TranslandShipment::class)
+        $records = $this->db()->query(TranslandShipmentV2::class)
             ->where('submitted', '=', 0)
             ->get();
 
@@ -151,7 +157,7 @@ class StorageService
 
     public function getSubmissionHistory(string $from, string $to): array
     {
-        return $this->db()->query(TranslandShipment::class)
+        return $this->db()->query(TranslandShipmentV2::class)
             ->where('pickupDate', '>=', $from)
             ->where('pickupDate', '<=', $to)
             ->where('submitted', '=', 1)
