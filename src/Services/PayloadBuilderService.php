@@ -102,9 +102,10 @@ class PayloadBuilderService
             $cleanOptions = [];
             foreach ($shipment['options'] as $opt) {
                 $code = (string) ($opt['code'] ?? '');
-                // Nur numerische Codes zulassen (Transland Standard)
-                // Dies filtert "TLE" automatisch aus den alten Datensätzen raus.
-                if (ctype_digit($code)) {
+
+                // Wir prüfen, ob der Code nur aus Zahlen besteht
+                // Da ctype_digit verboten ist, nutzen wir eine Kombination aus is_numeric und Typ-Check
+                if (!empty($code) && is_numeric($code) && (int) $code > 0) {
                     $cleanOptions[] = [
                         'code' => $code,
                         'text' => (string) ($opt['text'] ?? '')
