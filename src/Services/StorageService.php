@@ -15,70 +15,49 @@ class StorageService
         return pluginApp(DataBase::class);
     }
 
-    public function storeShipment(array $shipmentData): void
+    public function storeShipment(array $data): void
     {
         /** @var Shipment $record */
         $record = pluginApp(Shipment::class);
 
-        $record->orderId    = (int)($shipmentData['order_id'] ?? 0);
-        $record->pickupDate = $shipmentData['pickup_date'] ?? date('Y-m-d');
-        $record->listId     = '';
-        $record->submitted  = 0;
-        $record->createdAt  = date('Y-m-d H:i:s');
-        $record->updatedAt  = date('Y-m-d H:i:s');
+        $consignee = $data['consignee_address'] ?? [];
 
-        // UTF-8 sicherstellen und json_encode-Fehler abfangen
-        $encoded = json_encode($shipmentData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $record->orderId          = (int)($data['order_id'] ?? 0);
+        $record->pickupDate       = $data['pickup_date'] ?? date('Y-m-d');
+        $record->listId           = '';
+        $record->submitted        = 0;
 
-        if ($encoded === false) {
-            // Fallback: Umlaute und Sonderzeichen bereinigen
-            $clean = $this->sanitizeForJson($shipmentData);
-            $encoded = json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        }
+        $record->consigneeName1   = $consignee['name1']          ?? '';
+        $record->consigneeName2   = $consignee['name2']          ?? '';
+        $record->consigneeStreet  = $consignee['street']         ?? '';
+        $record->consigneeZip     = $consignee['zip']            ?? '';
+        $record->consigneeCity    = $consignee['city']           ?? '';
+        $record->consigneeCountry = $consignee['country']        ?? 'DE';
+        $record->consigneePhone   = $consignee['phone']          ?? '';
+        $record->consigneeEmail   = $consignee['email']          ?? '';
+        $record->consigneeContact = $consignee['contact_person'] ?? '';
 
-        $record->shipmentData = $encoded ?: '{}';
+        $record->reference        = (string)($data['reference']       ?? '');
+        $record->value            = (string)($data['value']           ?? '0');
+        $record->valueCurrency    = (string)($data['value_currency']  ?? 'EUR');
+        $record->weightGr         = (int)($data['weight_gr']          ?? 0);
 
-        // DIAGNOSE: Zeigt was tatsächlich gespeichert wird
-        $this->getLogger(__METHOD__)->error('TranslandShipping::storage.raw', [
-            'keys_in_shipmentData' => array_keys($shipmentData),
-            'raw_json'             => substr($encoded ?: '{}', 0, 500),
-        ]);
+        $record->packagesJson     = json_encode($data['packages'] ?? [], JSON_UNESCAPED_UNICODE);
+        $record->optionsJson      = json_encode($data['options']  ?? [], JSON_UNESCAPED_UNICODE);
 
-        // Log VOR dem Save – zeigt was wirklich in die DB geschrieben wird
-        $decodedBeforeSave = json_decode($encoded, true) ?? [];
-        $this->getLogger(__METHOD__)->error('TranslandShipping::storage.saved', [
-            'orderId'             => $record->orderId,
-            'pickupDate'          => $record->pickupDate,
-            'table'               => $record->getTableName(),
-            'json_encode_ok'      => ($encoded !== false && $encoded !== '{}') ? 'JA' : 'FEHLER',
-            'has_shipper_address' => !empty($decodedBeforeSave['shipper_address']) ? 'JA' : 'NEIN',
-            'shipper_name1'       => $decodedBeforeSave['shipper_address']['name1'] ?? 'LEER',
-            'has_consignee'       => !empty($decodedBeforeSave['consignee_address']) ? 'JA' : 'NEIN',
-            'consignee_name1'     => $decodedBeforeSave['consignee_address']['name1'] ?? 'LEER',
-            'reference'           => $decodedBeforeSave['reference'] ?? 'LEER',
-            'package_count'       => count($decodedBeforeSave['packages'] ?? []),
-            'shipmentData_length' => strlen($encoded),
-        ]);
+        $record->createdAt        = date('Y-m-d H:i:s');
+        $record->updatedAt        = date('Y-m-d H:i:s');
 
         $this->db()->save($record);
-    }
 
-    /**
-     * Bereinigt ein Array rekursiv für JSON-Encoding.
-     * Konvertiert alle Strings nach UTF-8.
-     */
-    private function sanitizeForJson($data)
-    {
-        if (is_array($data)) {
-            return array_map([$this, 'sanitizeForJson'], $data);
-        }
-        if (is_string($data)) {
-            // Wenn nicht UTF-8, konvertieren
-            if (!mb_check_encoding($data, 'UTF-8')) {
-                return mb_convert_encoding($data, 'UTF-8', 'ISO-8859-1');
-            }
-        }
-        return $data;
+        $this->getLogger(__METHOD__)->error('TranslandShipping::storage.saved', [
+            'orderId'          => $record->orderId,
+            'table'            => $record->getTableName(),
+            'consigneeName1'   => $record->consigneeName1,
+            'reference'        => $record->reference,
+            'weightGr'         => $record->weightGr,
+            'packagesJson_len' => strlen($record->packagesJson),
+        ]);
     }
 
     public function getPendingShipments(string $newerThan = ''): array
@@ -106,11 +85,8 @@ class StorageService
             }
         }
 
-        return array_values(array_map(function ($record) {
-            $data = json_decode($record->shipmentData, true) ?? [];
-            $data['_record_id']  = $record->id;
-            $data['pickup_date'] = $record->pickupDate;
-            return $data;
+        return array_values(array_map(function (Shipment $record) {
+            return $this->recordToShipmentArray($record);
         }, $latestByOrder));
     }
 
@@ -131,9 +107,6 @@ class StorageService
         }
     }
 
-    /**
-     * Markiert alle ungültigen pending Records (leere shipper_address) als submitted.
-     */
     public function purgeInvalidRecords(): int
     {
         $records = $this->db()->query(Shipment::class)
@@ -142,8 +115,7 @@ class StorageService
 
         $count = 0;
         foreach ($records as $record) {
-            $data = json_decode($record->shipmentData, true) ?? [];
-            if (empty($data['shipper_address']) || empty($data['reference'])) {
+            if (empty($record->consigneeName1) || empty($record->reference)) {
                 $record->submitted = 1;
                 $record->listId    = 'PURGED-INVALID';
                 $record->updatedAt = date('Y-m-d H:i:s');
@@ -162,5 +134,50 @@ class StorageService
             ->where('pickupDate', '<=', $to)
             ->where('submitted', '=', 1)
             ->get();
+    }
+
+    /**
+     * Wandelt einen DB-Record in das Bordero-Shipment-Array um.
+     * shipper_address wird nicht gespeichert – kommt immer frisch aus den Settings.
+     */
+    private function recordToShipmentArray(Shipment $record): array
+    {
+        /** @var SettingsService $settings */
+        $settingsService  = pluginApp(SettingsService::class);
+        $settings         = $settingsService->getSettings();
+
+        /** @var PayloadBuilderService $builder */
+        $builder          = pluginApp(PayloadBuilderService::class);
+        $shipperAddress   = $builder->buildShipperAddress($settings);
+
+        $consigneeAddress = [
+            'name1'          => $record->consigneeName1,
+            'name2'          => $record->consigneeName2,
+            'street'         => $record->consigneeStreet,
+            'zip'            => $record->consigneeZip,
+            'city'           => $record->consigneeCity,
+            'country'        => $record->consigneeCountry,
+            'phone'          => $record->consigneePhone,
+            'email'          => $record->consigneeEmail,
+            'contact_person' => $record->consigneeContact,
+        ];
+
+        return [
+            '_record_id'        => $record->id,
+            'order_id'          => $record->orderId,
+            'pickup_date'       => $record->pickupDate,
+            'shipper_address'   => $shipperAddress,
+            'consignee_address' => $consigneeAddress,
+            'loading_address'   => $shipperAddress,
+            'procurement'       => false,
+            'franking'          => '1',
+            'reference'         => $record->reference,
+            'value'             => $record->value,
+            'value_currency'    => $record->valueCurrency,
+            'weight_gr'         => (int)$record->weightGr,
+            'packages'          => json_decode($record->packagesJson, true) ?? [],
+            'options'           => json_decode($record->optionsJson,  true) ?? [],
+            'texts'             => [],
+        ];
     }
 }
