@@ -83,6 +83,13 @@ class ShippingListService
 
             $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
 
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.response', [
+                'list_id'     => $listId,
+                'api_result'  => $apiResponse['result']  ?? 'MISSING',
+                'has_listPDF' => !empty($apiResponse['listPDF']) ? 'JA' : 'NEIN',
+                'full_response' => json_encode($apiResponse),
+            ]);
+
             if (($apiResponse['result'] ?? '') !== 'ok') {
                 throw new \RuntimeException(
                     'Transland API returned unexpected result: ' . json_encode($apiResponse)

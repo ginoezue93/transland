@@ -172,9 +172,10 @@ class TranslandApiService
 
         $decoded = json_decode($responseBody, true);
 
-        $this->getLogger(__CLASS__)->info('TranslandShipping::api.success', [
+        $this->getLogger(__CLASS__)->error('TranslandShipping::api.response', [
             'url'    => $url,
             'status' => $httpStatus,
+            'body'   => is_array($decoded) ? json_encode($decoded) : substr((string)$responseBody, 0, 500),
         ]);
 
         return [
