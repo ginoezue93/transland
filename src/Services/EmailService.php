@@ -2,7 +2,8 @@
 
 namespace TranslandShipping\Services;
 
-use Plenty\Modules\Mail\Contracts\MailRepositoryContract;
+// Der korrekte Pfad für Stable7 / PlentyONE
+use Plenty\Modules\Mail\Services\Contracts\MailService;
 use Plenty\Modules\Mail\Models\Mail;
 use Plenty\Plugin\Log\Loggable;
 
@@ -11,13 +12,13 @@ class EmailService
     use Loggable;
 
     private $settingsService;
-    private $mailRepository;
+    private $mailService;
 
-    // Nutze Dependency Injection für das Repository
-    public function __construct(SettingsService $settingsService, MailRepositoryContract $mailRepository)
+    // Inject den MailService (nicht das RepositoryContract)
+    public function __construct(SettingsService $settingsService, MailService $mailService)
     {
         $this->settingsService = $settingsService;
-        $this->mailRepository = $mailRepository;
+        $this->mailService = $mailService;
     }
 
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
@@ -30,7 +31,6 @@ class EmailService
             return;
         }
 
-        // Base64 bereinigen
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
@@ -42,7 +42,7 @@ class EmailService
             /** @var Mail $mail */
             $mail = pluginApp(Mail::class);
 
-            // Empfänger als Array von Objekten setzen
+            // ACHTUNG: Die Properties werden direkt befüllt
             $mail->recipients = [[
                 'email' => $recipient,
                 'name'  => 'Transland Logistik'
@@ -51,18 +51,15 @@ class EmailService
             $mail->subject = 'Transland Label - Auftrag ' . $orderId;
             $mail->contentHtml = '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>';
             
-            // Absender-Infos (Optional, falls nicht über Standard-Konto)
-            // $mail->senderEmail = "info@deinshop.de";
-
-            // Anhang hinzufügen: In Stable7 ist das Feld 'attachments' ein Array
+            // Anhänge in Stable7
             $mail->attachments = [[
                 'content'  => base64_decode($labelBase64),
                 'name'     => $filename,
                 'mimeType' => ($extension === 'pdf') ? 'application/pdf' : 'text/plain'
             ]];
 
-            // Senden über das Repository
-            $this->mailRepository->sendMail($mail);
+            // Der eigentliche Versandbefehl im MailService
+            $this->mailService->send($mail);
 
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
 
