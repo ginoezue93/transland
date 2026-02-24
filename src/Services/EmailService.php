@@ -2,7 +2,8 @@
 
 namespace TranslandShipping\Services;
 
-use Plenty\Modules\Mail\Models\MailMessage;
+use Plenty\Modules\Mail\Templates\Contracts\MailService; // Stable7 Pfad
+use Plenty\Modules\Mail\Templates\Contracts\MailFactory; // Zum Erstellen der Mail
 use Plenty\Plugin\Log\Loggable;
 
 class EmailService
@@ -18,73 +19,53 @@ class EmailService
 
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
     {
-        $settings  = $this->settingsService->getSettings();
+        $settings = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
         if (empty($recipient)) {
+            $this->getLogger(__METHOD__)->warning('TranslandShipping::email.no_recipient');
             return;
         }
 
+        // Base64 bereinigen
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
 
         $extension = strtolower($format) === 'zpl' ? 'zpl' : 'pdf';
-        $filename  = 'label-auftrag-' . $orderId . '.' . $extension;
+        $filename = 'label-auftrag-' . $orderId . '.' . $extension;
 
         try {
-            // Wir erstellen das Modell direkt, anstatt es über die App-Factory zu laden
-            /** @var MailMessage $mailMessage */
-            $mailMessage = pluginApp(MailMessage::class);
+            // In Stable7 wird die Mail über eine Factory erzeugt
+            /** @var MailFactory $mailFactory */
+            $mailFactory = pluginApp(MailFactory::class);
 
-            $mailMessage->toEmail   = $recipient;
-            $mailMessage->subject   = 'Transland Label - Auftrag ' . $orderId;
-            $mailMessage->contentHtml = '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>';
-            
-            // Bei Modellen werden Anhänge oft direkt als Array zugewiesen
-            $mailMessage->attachments = [
-                [
-                    'base64Data' => $labelBase64,
-                    'name'       => $filename,
-                    'mimeType'   => ($extension === 'pdf') ? 'application/pdf' : 'text/plain'
-                ]
-            ];
+            // In Stable7 wird der Versand über den MailService abgewickelt
+            /** @var MailService $mailService */
+            $mailService = pluginApp(MailService::class);
 
-            /** @var \Plenty\Modules\Mail\Contracts\MailerContract $mailer */
-            // Falls der MailerContract als Klasse nicht gefunden wird, 
-            // versuchen wir es über den Service-Container-Key 'mailer'
-            $mailer = pluginApp('mailer'); 
-            $mailer->send($mailMessage);
+            $mail = $mailFactory->create();
+            $mail->setToEmail($recipient);
+            $mail->setSubject('Transland Label - Auftrag ' . $orderId);
+            $mail->setHtmlContent('<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>');
+
+            // Anhang hinzufügen
+            $mail->addAttachment(
+                base64_decode($labelBase64),
+                $filename,
+                ($extension === 'pdf') ? 'application/pdf' : 'text/plain'
+            );
+
+            // Senden
+            $mailService->send($mail);
 
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
 
         } catch (\Throwable $e) {
-            $this->getLogger(__METHOD__)->error('TranslandShipping::email.failed', [
-                'error' => $e->getMessage(),
-                'hint'  => 'Versuche alternative Mail-Methode...'
+            $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
+                'message' => $e->getMessage(),
+                'trace' => substr($e->getTraceAsString(), 0, 200)
             ]);
-            
-            // Backup: Falls das Modell auch scheitert, nutzen wir das globale Mail-System
-            $this->sendBackupMail($recipient, $orderId, $labelBase64, $filename);
-        }
-    }
-
-    private function sendBackupMail($recipient, $orderId, $data, $filename)
-    {
-        try {
-            // Letzter Versuch über das MailService-Modul mit String-Key
-            $mailService = pluginApp('Plenty\Modules\Mail\Contracts\MailService');
-            $mailService->send([
-                'to' => $recipient,
-                'subject' => 'Transland Label - ' . $orderId,
-                'content' => 'Label im Anhang.',
-                'attachments' => [[
-                    'base64Data' => $data,
-                    'name' => $filename
-                ]]
-            ]);
-        } catch (\Throwable $e) {
-             $this->getLogger(__METHOD__)->error('TranslandShipping::email.all_methods_failed');
         }
     }
 }
