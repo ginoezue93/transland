@@ -12,14 +12,14 @@
   "email": "info@yourcompany.de",
   "phone": "",
   "homepage": "https://yourcompany.de",
-  "version": "1.1.0",
+  "version": "2.1.0",
   "license": "proprietary",
   "type": "backend",
   "require": [],
   "runOnBoot": true,
   "serviceProvider": "TranslandShipping\\Providers\\TranslandServiceProvider",
   "runOnBuild": [
-    "TranslandShipping\\Migrations\\CreateShipmentTableV4"
+    "TranslandShipping\\Migrations\\CreateShipmentTableV5"
   ],
   "javaScriptFiles": [],
   "cssFiles": [],
