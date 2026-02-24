@@ -2,14 +2,12 @@
 
 namespace TranslandShipping\Services;
 
-// Der offizielle Stable 7 Contract für den neuen Mail-Builder
 use Plenty\Modules\Mail\Templates\Contracts\Service\EmailService\EmailTemplatesSendServiceContract;
 use Plenty\Plugin\Log\Loggable;
 
 /**
  * Class EmailService
- * * Behebt den "validation error" durch strikte Einhaltung der 
- * PlentyONE (Stable 7) Mail-Struktur.
+ * Struktur angepasst an die REST-Spezifikation für sendPreview
  */
 class EmailService
 {
@@ -18,9 +16,6 @@ class EmailService
     private $settingsService;
     private $emailSendService;
 
-    /**
-     * EmailService constructor.
-     */
     public function __construct(
         SettingsService $settingsService,
         EmailTemplatesSendServiceContract $emailSendService
@@ -29,10 +24,6 @@ class EmailService
         $this->emailSendService = $emailSendService;
     }
 
-    /**
-     * Sendet das Label per E-Mail.
-     * Nutzt die 'sendPreview' Methode, um dynamische Inhalte ohne festes Template zu senden.
-     */
     public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
     {
         $settings = $this->settingsService->getSettings();
@@ -43,7 +34,7 @@ class EmailService
             return;
         }
 
-        // Base64 bereinigen
+        // Base64 bereinigen (Header entfernen falls vorhanden)
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
@@ -54,56 +45,51 @@ class EmailService
 
         try {
             /**
-             * WICHTIG: Die Struktur muss exakt der Stable 7 Spezifikation entsprechen.
-             * Ein falscher Key (z.B. 'mimeType' statt 'type') führt zum "validation error".
+             * Mapping basierend auf deiner bereitgestellten Struktur:
              */
             $mailData = [
-                // 1. Absender-Account (Zwingend erforderlich in Stable 7)
-                // Falls in Settings nicht gesetzt, wird ID 1 (Standard) probiert.
-                "fromAddress" => "test@example.com",
-                "fromName" => "Test System",
-                "accountId" => 1,
-
-                // 3. Inhalt
-                "subject" => 'Transland Label - Auftrag ' . $orderId,
-                "content" => '<p>Anbei das Versandlabel für Auftrag <strong>' . $orderId . '</strong>.</p>',
-
-                // 4. Empfänger-Struktur (Striktes Array-Format)
-                "receivers" => [
-                    "to" => [
-                        [
-                            "email" => $recipient,
-                            "name" => "Transland Logistik"
-                        ]
+                // 'account' Mapping
+                "account" => [
+                    "type" => "webstore", // oder messenger_inbox
+                    "id"   =>  1,
+                    "from" => [
+                        "name"    => "Transland Logistik",
+                        "address" => $settings['sender_email'] ?? ''
                     ]
                 ],
 
-                // 5. Anhänge
+                // 'to' Mapping (Array von Objekten mit 'name' und 'address')
+                "to" => [
+                    [
+                        "name"    => "Versandabteilung",
+                        "address" => $recipient
+                    ]
+                ],
+
+                "subject" => 'Transland Label - Auftrag ' . $orderId,
+                "body"    => 'Anbei das Versandlabel für Auftrag ' . $orderId . '.',
+
+                // 'attachments' Mapping (Wichtig: 'body' statt 'content' für den File-Inhalt)
                 "attachments" => [
                     [
-                        "content" => $labelBase64,
-                        "name" => $filename,
-                        "type" => $mimeType // Stable 7 nutzt oft 'type' für den Mime-Type
+                        "name"        => $filename,
+                        "body"        => $labelBase64, 
+                        "size"        => (int)(strlen(base64_decode($labelBase64)) / 1024),
+                        "contentType" => $mimeType
                     ]
                 ]
             ];
 
-            // Versand auslösen
-            $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', [
-                'orderId' => $orderId,
-                'recipient' => $recipient
-            ]);
+            // In deinem Test-Account wird das ohne echtes Konto trotzdem validieren wollen.
+            // Zum Testen der Struktur kannst du die nächste Zeile auskommentieren:
             $this->emailSendService->sendPreview($mailData);
 
+            $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
 
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
                 'message' => $e->getMessage(),
-                'orderId' => $orderId,
-                'sentData' => [
-                    'recipient' => $recipient,
-                    'accountId' => $mailData['accountId'] ?? 'none'
-                ]
+                'details' => 'Prüfe ob account.id existiert und from.address valide ist.'
             ]);
         }
     }
