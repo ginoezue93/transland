@@ -91,7 +91,7 @@ class PayloadBuilderService
             'procurement'       => $shipment['procurement']        ?? false,
             'franking'          => $shipment['franking']           ?? '1',
             'reference'         => $shipment['reference']          ?? '',
-            'value'             => (string)($shipment['value']     ?? '0'),
+            'value'             => (int)round((float)($shipment['value'] ?? 0)),
             'value_currency'    => $shipment['value_currency']     ?? 'EUR',
             'weight_gr'         => (int)($shipment['weight_gr']    ?? 0),
             'packages'          => $shipment['packages']           ?? [],
@@ -121,6 +121,7 @@ class PayloadBuilderService
             'city'    => $settings['shipper_city']   ?? '',
         ];
 
+        // external_id = Kundennummer bei Transland (identifiziert das Lager/den Absender)
         if (!empty($settings['plenty_customer_id_at_transland'])) {
             $addr['external_id'] = $settings['plenty_customer_id_at_transland'];
         }
