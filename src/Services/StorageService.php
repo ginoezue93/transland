@@ -25,7 +25,7 @@ class StorageService
         $consignee = $data['consignee_address'] ?? [];
 
         $record->orderId          = (int)($data['order_id'] ?? 0);
-        $record->pickupDate       = $data['pickup_date'] ?? date('Y-m-d');
+        $record->pickupDate       = $data['pickup_date'] ?? self::calcPickupDate();
         $record->listId           = '';
         $record->submitted        = 0;
 
@@ -59,16 +59,46 @@ class StorageService
             'reference'        => $record->reference,
             'weightGr'         => $record->weightGr,
             'packagesJson_len' => strlen($record->packagesJson),
+            'pickupDate'       => $record->pickupDate,
         ]);
+    }
+
+    /**
+     * Berechnet das korrekte pickup_date:
+     * - Mo-Do -> nächster Werktag
+     * - Fr/Sa/So -> Montag
+     */
+    public static function calcPickupDate(string $fromDate = ''): string
+    {
+        $base = !empty($fromDate) ? new \DateTime($fromDate) : new \DateTime();
+        $dow  = (int)$base->format('N'); // 1=Mo, 5=Fr, 6=Sa, 7=So
+
+        if ($dow === 5) {
+            $base->modify('+3 days'); // Freitag -> Montag
+        } elseif ($dow === 6) {
+            $base->modify('+2 days'); // Samstag -> Montag
+        } elseif ($dow === 7) {
+            $base->modify('+1 day');  // Sonntag -> Montag
+        } else {
+            $base->modify('+1 day');  // Mo-Do -> nächster Tag
+        }
+
+        return $base->format('Y-m-d');
     }
 
     public function getPendingShipments(string $newerThan = ''): array
     {
-        $cutoff = !empty($newerThan) ? $newerThan : date('Y-m-d');
+        // TEST-MODUS: alle heutigen Sendungen ab 00:00
+        // TODO: nach Test zurückstellen auf: date('Y-m-d', strtotime('yesterday')) . ' 12:00:00'
+        if (!empty($newerThan)) {
+            $from = $newerThan . ' 00:00:00';
+        } else {
+            $from = date('Y-m-d') . ' 00:00:00';
+        }
 
         $records = $this->db()->query(Shipment::class)
             ->where('submitted', '=', 0)
-            ->where('createdAt', '>=', $cutoff . ' 00:00:00')
+            ->where('createdAt', '>=', $from)
             ->get();
 
         if (empty($records)) {
@@ -140,7 +170,7 @@ class StorageService
 
     /**
      * Wandelt einen DB-Record in das Bordero-Shipment-Array um.
-     * shipper_address wird nicht gespeichert – kommt immer frisch aus den Settings.
+     * shipper_address wird nicht gespeichert - kommt immer frisch aus den Settings.
      */
     private function recordToShipmentArray(Shipment $record): array
     {
