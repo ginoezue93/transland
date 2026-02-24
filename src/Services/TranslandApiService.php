@@ -104,8 +104,9 @@ class TranslandApiService
         $data = $raw['data'];
 
         return [
-            'result'  => $data['result']  ?? '',
-            // listPDF is directly in the response data, not nested further
+            // API returns either 'result' or 'status' field
+            'result'  => $data['result'] ?? $data['status'] ?? '',
+            'SSCCs'   => $data['SSCCs']  ?? [],
             'listPDF' => $data['listPDF'] ?? null,
         ];
     }
@@ -141,8 +142,8 @@ class TranslandApiService
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
 
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT        => 60,
         ]);
 
         $this->getLogger(__CLASS__)->error('TranslandShipping::api.curlStart', [
@@ -186,12 +187,16 @@ class TranslandApiService
             ];
         }
 
-        $decoded = json_decode($responseBody, true);
+        $decoded      = json_decode($responseBody, true);
+        $jsonLastError = json_last_error();
 
         $this->getLogger(__CLASS__)->error('TranslandShipping::api.response', [
-            'url'    => $url,
-            'status' => $httpStatus,
-            'body'   => is_array($decoded) ? json_encode($decoded) : substr((string)$responseBody, 0, 500),
+            'url'          => $url,
+            'status'       => $httpStatus,
+            'jsonError'    => $jsonLastError,
+            'decodedKeys'  => is_array($decoded) ? array_keys($decoded) : 'NOT_ARRAY',
+            'result_field' => $decoded['result'] ?? 'MISSING',
+            'has_listPDF'  => isset($decoded['listPDF']) ? 'JA (' . strlen($decoded['listPDF']) . ' chars)' : 'NEIN',
         ]);
 
         return [

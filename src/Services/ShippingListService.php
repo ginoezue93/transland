@@ -98,14 +98,15 @@ class ShippingListService
 
             $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.response', [
                 'list_id'       => $listId,
-                'api_result'    => $apiResponse['result']  ?? 'MISSING',
+                'api_result'    => $apiResponse['result'] ?? $apiResponse['status'] ?? 'MISSING',
                 'has_listPDF'   => !empty($apiResponse['listPDF']) ? 'JA' : 'NEIN',
-                'full_response' => json_encode($apiResponse),
+                'sscc_count'    => count($apiResponse['SSCCs'] ?? []),
+                'full_response' => substr(json_encode($apiResponse), 0, 300),
             ]);
 
-            if (($apiResponse['result'] ?? '') !== 'ok') {
+            if (($apiResponse['result'] ?? $apiResponse['status'] ?? '') !== 'ok') {
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.unexpectedResult', [
-                    'list_id'      => $listId,
+                    'list_id'       => $listId,
                     'full_response' => json_encode($apiResponse),
                 ]);
                 continue;
