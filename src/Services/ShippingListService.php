@@ -82,19 +82,33 @@ class ShippingListService
                 'full_payload_json'     => json_encode($borderoPayload),
             ]);
 
-            $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
+            try {
+                $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
+            } catch (\Throwable $apiEx) {
+                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.apiException', [
+                    'list_id'   => $listId,
+                    'exception' => $apiEx->getMessage(),
+                    'class'     => get_class($apiEx),
+                    'file'      => $apiEx->getFile(),
+                    'line'      => $apiEx->getLine(),
+                    'trace'     => substr($apiEx->getTraceAsString(), 0, 1000),
+                ]);
+                continue;
+            }
 
             $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.response', [
-                'list_id'     => $listId,
-                'api_result'  => $apiResponse['result']  ?? 'MISSING',
-                'has_listPDF' => !empty($apiResponse['listPDF']) ? 'JA' : 'NEIN',
+                'list_id'       => $listId,
+                'api_result'    => $apiResponse['result']  ?? 'MISSING',
+                'has_listPDF'   => !empty($apiResponse['listPDF']) ? 'JA' : 'NEIN',
                 'full_response' => json_encode($apiResponse),
             ]);
 
             if (($apiResponse['result'] ?? '') !== 'ok') {
-                throw new \RuntimeException(
-                    'Transland API returned unexpected result: ' . json_encode($apiResponse)
-                );
+                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.unexpectedResult', [
+                    'list_id'      => $listId,
+                    'full_response' => json_encode($apiResponse),
+                ]);
+                continue;
             }
 
             $submittedOrderIds = array_column($shipments, 'order_id');
