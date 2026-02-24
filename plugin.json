@@ -10,9 +10,11 @@
   "version": "9.1.1",
   "license": "proprietary",
   "type": "backend",
-  "require": {
-    "plenty-mail": "*"
-  },
+  "require": [
+    {
+      "plenty-mail": "*"
+    }
+  ],
   "runOnBoot": true,
   "serviceProvider": "TranslandShipping\\Providers\\TranslandServiceProvider",
   "runOnBuild": ["TranslandShipping\\Migrations\\CreateShipmentTableV5"],
