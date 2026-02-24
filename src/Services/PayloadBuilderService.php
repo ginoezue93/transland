@@ -239,18 +239,18 @@ class PayloadBuilderService
         $phone    = $delivery['phone'] ?? '';
         $ref      = !empty($order['externalOrderId']) ? $order['externalOrderId'] : (string)($order['id'] ?? '');
 
-        // 101: Telefonavisierung wenn Telefonnummer vorhanden
+        // 101: Telefonavisierung wenn Telefonnummer vorhanden (code als Integer laut Doku)
         if (!empty($phone)) {
-            $options[] = ['code' => '101', 'text' => $phone];
+            $options[] = ['code' => 101, 'text' => $phone];
         }
 
-        // 502: Referenznummer immer setzen
+        // 502: Referenznummer immer setzen (code als Integer laut Doku)
         if (!empty($ref)) {
-            $options[] = ['code' => '502', 'text' => $ref];
+            $options[] = ['code' => 502, 'text' => $ref];
         }
 
-        // TLE: Liftgate – standardmäßig aktiv (Speditionssendungen brauchen das meist)
-        $options[] = ['code' => 'TLE'];
+        // TLE: kein gültiger Code laut Doku – mit Transland klären, vorerst deaktiviert
+        // $options[] = ['code' => 'TLE'];
 
         return $options;
     }
