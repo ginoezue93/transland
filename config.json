@@ -142,6 +142,13 @@
     }
   },
   {
+    "tab": "Etikett & Tagesabschluss",
+    "key": "label_email",
+    "label": "E-Mail-Adresse für Label-Versand (leer = kein Versand)",
+    "type": "text",
+    "default": ""
+  },
+  {
     "tab": "Verpackungsprozesse",
     "key": "packaging_type_process_52",
     "label": "Prozess 52 – 2. AP Kleinteile/Sonst. Teile",

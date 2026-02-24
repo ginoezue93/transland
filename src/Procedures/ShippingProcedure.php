@@ -30,7 +30,7 @@ class ShippingProcedure
 
         try {
             /** @var OrderShippingPackageRepositoryContract $packageRepo */
-            $packageRepo = pluginApp(OrderShippingPackageRepositoryContract::class);
+            $packageRepo    = pluginApp(OrderShippingPackageRepositoryContract::class);
             $plentyPackages = $packageRepo->listOrderShippingPackages($order->id);
 
             if (empty($plentyPackages)) {
@@ -42,12 +42,12 @@ class ShippingProcedure
 
             $packages = array_map(function ($pkg) {
                 return [
-                    'content' => 'Waren',
+                    'content'        => 'Waren',
                     'packaging_type' => '',
-                    'length_cm' => (int) ($pkg->length ?? 0),
-                    'width_cm' => (int) ($pkg->width ?? 0),
-                    'height_cm' => (int) ($pkg->height ?? 0),
-                    'weight_gr' => (int) ($pkg->weight ?? 0),
+                    'length_cm'      => (int)($pkg->length ?? 0),
+                    'width_cm'       => (int)($pkg->width  ?? 0),
+                    'height_cm'      => (int)($pkg->height ?? 0),
+                    'weight_gr'      => (int)($pkg->weight ?? 0),
                 ];
             }, $plentyPackages);
 
@@ -55,12 +55,12 @@ class ShippingProcedure
 
             /** @var SettingsService $settingsService */
             $settingsService = pluginApp(SettingsService::class);
-            $settings = $settingsService->getSettings();
-            $format = strtoupper($settings['label_format'] ?? 'PDF');
+            $settings        = $settingsService->getSettings();
+            $format          = strtoupper($settings['label_format'] ?? 'PDF');
 
             /** @var LabelService $labelService */
             $labelService = pluginApp(LabelService::class);
-            $result = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
+            $result       = $labelService->createLabelForOrder($orderArray, $packages, $format, []);
 
             // SSCC zurück in die Plenty-Pakete schreiben
             foreach ($plentyPackages as $idx => $plentyPkg) {
@@ -74,12 +74,25 @@ class ShippingProcedure
 
             // Label als Dokument am Auftrag speichern (Fehler hier blockieren nicht den Rest)
             if (!empty($result['label_data'])) {
+                // Label als Dokument speichern
                 try {
                     $this->saveLabelAsDocument($order->id, $result['label_data'], $format);
                 } catch (\Exception $docException) {
                     $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaveError', [
                         'orderId' => $order->id,
-                        'error' => $docException->getMessage(),
+                        'error'   => $docException->getMessage(),
+                    ]);
+                }
+
+                // Label per Email versenden
+                try {
+                    /** @var \TranslandShipping\Services\EmailService $emailService */
+                    $emailService = pluginApp(\TranslandShipping\Services\EmailService::class);
+                    $emailService->sendLabelEmail($result['label_data'], $order->id, $format);
+                } catch (\Exception $mailException) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.emailError', [
+                        'orderId' => $order->id,
+                        'error'   => $mailException->getMessage(),
                     ]);
                 }
             }
@@ -90,18 +103,18 @@ class ShippingProcedure
             $shippingListService->storeShipmentAfterLabel($result['shipment_data']);
 
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.success', [
-                'orderId' => $order->id,
-                'ssccList' => $result['sscc_list'],
-                'stored_shipper_name1' => $result['shipment_data']['shipper_address']['name1'] ?? 'LEER',
+                'orderId'                => $order->id,
+                'ssccList'               => $result['sscc_list'],
+                'stored_shipper_name1'   => $result['shipment_data']['shipper_address']['name1']   ?? 'LEER',
                 'stored_consignee_name1' => $result['shipment_data']['consignee_address']['name1'] ?? 'LEER',
-                'stored_reference' => $result['shipment_data']['reference'] ?? 'LEER',
+                'stored_reference'       => $result['shipment_data']['reference'] ?? 'LEER',
             ]);
 
         } catch (\Exception $e) {
             $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.error', [
                 'orderId' => $order->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
             ]);
         }
     }
@@ -113,23 +126,19 @@ class ShippingProcedure
         }
 
         $authHelper = pluginApp(AuthHelper::class);
-        $authHelper->processUnguarded(function () use ($orderId, $labelBase64, $format) {
-            $docRepo = pluginApp(DocumentRepositoryContract::class);
-
-            $documentData = [
-                'content' => $labelBase64,
-                'type' => 'shipping_label',
-                'fileType' => strtolower($format) ?: 'pdf',
-                'name' => 'Transland_' . $orderId,
-                'displayDate' => date('c'),
-                'numberWithPrefix' => 'TL-' . $orderId, // Viele Validatoren brauchen das zwingend!
-                'orderId' => $orderId
-            ];
-
-            // Beachte: Array von Arrays [[ ... ]]
-            $docRepo->uploadOrderDocuments($orderId, 'shipping_label', [$documentData]);
+        $authHelper->processUnguarded(function () use ($orderId, $labelBase64) {
+            pluginApp(DocumentRepositoryContract::class)->uploadOrderDocuments($orderId, 'uploadedFile', [[
+                'displayDate'      => date('Y-m-d H:i:s'),
+                'numberWithPrefix' => 'TL-' . $orderId . '-' . date('Ymd'),
+                'content'          => $labelBase64,
+            ]]);
         });
+
+        $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.labelSaved', [
+            'orderId' => $orderId,
+        ]);
     }
+
     private function orderToArray(Order $order): array
     {
         // Laut offizieller PlentyONE Shipping-Plugin Dokumentation:
@@ -155,47 +164,47 @@ class ShippingProcedure
         $addressArray = [];
         if ($address) {
             $addressArray = [
-                'company' => $address->companyName ?? '',
-                'firstName' => $address->firstName ?? '',
-                'lastName' => $address->lastName ?? '',
-                'address1' => $address->street ?? '',
-                'address2' => $address->houseNumber ?? '',
-                'postalCode' => $address->postalCode ?? '',
-                'town' => $address->town ?? '',
-                'countryId' => $address->countryId ?? 1,
-                'phone' => $phone,
-                'email' => $email,
+                'company'    => $address->companyName ?? '',
+                'firstName'  => $address->firstName   ?? '',
+                'lastName'   => $address->lastName    ?? '',
+                'address1'   => $address->street      ?? '',
+                'address2'   => $address->houseNumber ?? '',
+                'postalCode' => $address->postalCode  ?? '',
+                'town'       => $address->town        ?? '',
+                'countryId'  => $address->countryId   ?? 1,
+                'phone'      => $phone,
+                'email'      => $email,
             ];
         }
 
         $this->getLogger(__CLASS__)->error('TranslandShipping::ShippingProcedure.orderParsed', [
-            'orderId' => $order->id,
-            'hasAddress' => $address !== null ? 'JA' : 'NEIN',
-            'firstName' => $addressArray['firstName'] ?? 'LEER',
-            'lastName' => $addressArray['lastName'] ?? 'LEER',
-            'street' => $addressArray['address1'] ?? 'LEER',
-            'houseNumber' => $addressArray['address2'] ?? 'LEER',
-            'postalCode' => $addressArray['postalCode'] ?? 'LEER',
-            'town' => $addressArray['town'] ?? 'LEER',
-            'phone' => $phone,
-            'externalId' => $order->externalOrderId ?? 'LEER',
+            'orderId'     => $order->id,
+            'hasAddress'  => $address !== null ? 'JA' : 'NEIN',
+            'firstName'   => $addressArray['firstName']  ?? 'LEER',
+            'lastName'    => $addressArray['lastName']   ?? 'LEER',
+            'street'      => $addressArray['address1']   ?? 'LEER',
+            'houseNumber' => $addressArray['address2']   ?? 'LEER',
+            'postalCode'  => $addressArray['postalCode'] ?? 'LEER',
+            'town'        => $addressArray['town']       ?? 'LEER',
+            'phone'       => $phone,
+            'externalId'  => $order->externalOrderId    ?? 'LEER',
         ]);
 
         $amounts = [];
         foreach (($order->amounts ?? []) as $amount) {
             $amounts[] = [
-                'isNet' => $amount->isNet ?? false,
+                'isNet'        => $amount->isNet        ?? false,
                 'invoiceTotal' => $amount->invoiceTotal ?? 0,
-                'currency' => $amount->currency ?? 'EUR',
+                'currency'     => $amount->currency     ?? 'EUR',
             ];
         }
 
         return [
-            'id' => $order->id,
+            'id'              => $order->id,
             'externalOrderId' => $order->externalOrderId ?? '',
             'deliveryAddress' => $addressArray,
-            'amounts' => $amounts,
-            'notes' => '',
+            'amounts'         => $amounts,
+            'notes'           => '',
         ];
     }
 }
