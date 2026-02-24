@@ -89,12 +89,12 @@ class EmailService
             ];
 
             // Versand auslösen
-            $this->emailSendService->sendPreview($mailData);
-
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', [
                 'orderId' => $orderId,
                 'recipient' => $recipient
             ]);
+            $this->emailSendService->sendPreview($mailData);
+
 
         } catch (\Throwable $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
