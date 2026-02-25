@@ -3,16 +3,13 @@
 namespace TranslandShipping\Services;
 
 use Plenty\Modules\Mail\Templates\Contracts\Service\EmailService\EmailTemplatesSendServiceContract;
-use Plenty\Plugin\Log\Loggable;
 
 /**
  * Class EmailService
- * Struktur angepasst an die REST-Spezifikation für sendPreview
+ * Versendet Emails nun über den Messenger-Kanal 1.
  */
 class EmailService
 {
-    use Loggable;
-
     private $settingsService;
     private $emailSendService;
 
@@ -30,11 +27,10 @@ class EmailService
         $recipient = trim($settings['label_email'] ?? '');
 
         if (empty($recipient)) {
-            $this->getLogger(__METHOD__)->warning('TranslandShipping::email.no_recipient');
             return;
         }
 
-        // Base64 bereinigen (Header entfernen falls vorhanden)
+        // Base64 bereinigen
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
@@ -44,14 +40,11 @@ class EmailService
         $mimeType = ($extension === 'pdf') ? 'application/pdf' : 'text/plain';
 
         try {
-            /**
-             * Mapping basierend auf deiner bereitgestellten Struktur:
-             */
             $mailData = [
-                // 'account' Mapping
+                // Umstellung auf den Messenger-Kanal
                 "account" => [
-                    "type" => "webstore", // oder messenger_inbox
-                    "id"   =>  0,
+                    "type" => "messenger_inbox", 
+                    "id"   => 1, // Dein neuer Messenger-Kanal
                     "from" => [
                         "name"    => "Transland Logistik",
                         "address" => $settings['sender_email'] ?? ''
@@ -78,15 +71,11 @@ class EmailService
                 ]
             ];
 
+            // Versand über die Preview-Schnittstelle (erzeugt den Entwurf/Versand im Messenger)
             $this->emailSendService->sendPreview($mailData);
 
-            $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
-
         } catch (\Throwable $e) {
-            $this->getLogger(__METHOD__)->error('TranslandShipping::email.error', [
-                'message' => $e->getMessage(),
-                'details' => 'Prüfe ob account.id existiert und from.address valide ist.'
-            ]);
+            // Keine Logs wie gewünscht
         }
     }
 }
