@@ -3,13 +3,16 @@
 namespace TranslandShipping\Services;
 
 use Plenty\Modules\Mail\Templates\Contracts\Service\EmailService\EmailTemplatesSendServiceContract;
+use Plenty\Plugin\Log\Loggable;
 
 /**
  * Class EmailService
- * Versendet Emails nun über den Messenger-Kanal 1.
+ * Versendet Emails über den Messenger-Kanal und loggt den Status.
  */
 class EmailService
 {
+    use Loggable;
+
     private $settingsService;
     private $emailSendService;
 
@@ -27,6 +30,9 @@ class EmailService
         $recipient = trim($settings['label_email'] ?? '');
 
         if (empty($recipient)) {
+            $this->getLogger(__CLASS__)->warning('TranslandShipping::mail.noRecipient', [
+                'orderId' => $orderId
+            ]);
             return;
         }
 
@@ -41,41 +47,50 @@ class EmailService
 
         try {
             $mailData = [
-                // Umstellung auf den Messenger-Kanal
                 "account" => [
                     "type" => "messenger_inbox", 
-                    "id"   => 1, // Dein neuer Messenger-Kanal
+                    "id"   => (int)($settings['messenger_id'] ?? 1), 
                     "from" => [
                         "name"    => "Transland Logistik",
                         "address" => $settings['sender_email'] ?? ''
                     ]
                 ],
-
                 "to" => [
                     [
                         "name"    => "Versandabteilung",
                         "address" => $recipient
                     ]
                 ],
-
                 "subject" => 'Transland Label - Auftrag ' . $orderId,
                 "body"    => 'Anbei das Versandlabel für Auftrag ' . $orderId . '.',
-
                 "attachments" => [
                     [
                         "name"        => $filename,
                         "body"        => $labelBase64, 
-                        "size"        => (int)(strlen(base64_decode($labelBase64)) / 1024),
+                        "size"        => strlen(base64_decode($labelBase64)), // Größe in Bytes
                         "contentType" => $mimeType
                     ]
                 ]
             ];
 
-            // Versand über die Preview-Schnittstelle (erzeugt den Entwurf/Versand im Messenger)
+            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.sending', [
+                'orderId'   => $orderId,
+                'recipient' => $recipient,
+                'messengerId' => $mailData['account']['id']
+            ]);
+
             $this->emailSendService->sendPreview($mailData);
 
+            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.success', [
+                'orderId' => $orderId
+            ]);
+
         } catch (\Throwable $e) {
-            // Keine Logs wie gewünscht
+            $this->getLogger(__CLASS__)->error('TranslandShipping::mail.error', [
+                'orderId' => $orderId,
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString()
+            ]);
         }
     }
 }
