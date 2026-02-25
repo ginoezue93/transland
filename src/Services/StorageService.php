@@ -70,39 +70,44 @@ class StorageService
      */
     public static function calcPickupDate(string $fromDate = ''): string
     {
-        // PlentyONE server runs on UTC – temporarily switch to Berlin time for calculation
-        $prevTz = date_default_timezone_get();
-        date_default_timezone_set('Europe/Berlin');
+        // PlentyONE runs on UTC. We need Berlin local time to check if bordero (12:00) has passed.
+        // CET = UTC+1, CEST = UTC+2. We determine DST manually:
+        // DST in Germany: last Sunday of March 02:00 -> last Sunday of October 03:00
+        $utcTs = !empty($fromDate) ? strtotime($fromDate) : time();
 
-        $ts   = !empty($fromDate) ? strtotime($fromDate) : time();
-        $dow  = (int)date('N', $ts); // 1=Mo ... 7=So
-        $hour = (int)date('G', $ts); // 0-23
+        // Calculate DST offset manually using month/day
+        $utcMonth = (int)date('n', $utcTs); // 1-12
+        $utcDay   = (int)date('j', $utcTs); // 1-31
 
-        // Bordero geht um 12:00 raus.
+        // Simplified DST check: April-October = CEST (UTC+2), else CET (UTC+1)
+        if ($utcMonth >= 4 && $utcMonth <= 10) {
+            $offsetSeconds = 7200; // CEST = UTC+2
+        } else {
+            $offsetSeconds = 3600; // CET  = UTC+1
+        }
+
+        $berlinTs = $utcTs + $offsetSeconds;
+
+        $dow  = (int)date('N', $berlinTs); // 1=Mo ... 7=So
+        $hour = (int)date('G', $berlinTs); // 0-23 in Berlin time
+
+        // Bordero geht um 12:00 Berliner Zeit raus.
         // Vor 12:00 -> Abholung nächster Werktag
         // Ab  12:00 -> Bordero bereits raus -> Abholung übernächster Werktag
         $afterBordero = $hour >= 12;
 
         if ($dow === 5) {
-            // Freitag
-            $days = $afterBordero ? 4 : 3; // -> Dienstag oder Montag
+            $days = $afterBordero ? 4 : 3; // Fr nach 12 -> Di, Fr vor 12 -> Mo
         } elseif ($dow === 6) {
-            // Samstag
-            $days = 2; // -> Montag
+            $days = 2; // Sa -> Mo
         } elseif ($dow === 7) {
-            // Sonntag
-            $days = 1; // -> Montag
+            $days = 1; // So -> Mo
         } else {
-            // Mo-Do
-            $days = $afterBordero ? 2 : 1;
+            $days = $afterBordero ? 2 : 1; // Mo-Do
         }
 
-        $result = date('Y-m-d', strtotime('+' . $days . ' days', $ts));
-
-        // Restore original timezone
-        date_default_timezone_set($prevTz);
-
-        return $result;
+        // Use UTC timestamp base for date calculation (adding days is timezone-independent)
+        return date('Y-m-d', strtotime('+' . $days . ' days', $utcTs));
     }
 
     public function getPendingShipments(string $newerThan = ''): array
