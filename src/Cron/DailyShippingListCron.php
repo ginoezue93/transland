@@ -39,12 +39,16 @@ class DailyShippingListCron extends CronHandler
             return;
         }
 
-        $configuredTime = $settings['auto_submit_time'] ?? '17:00';
+        // PlentyONE server runs on UTC – convert configured local time (CET/CEST) to UTC
+        // CET  = UTC+1 (Winter), CEST = UTC+2 (Sommer)
+        // We use a simple offset: subtract 1h as conservative estimate
+        // For exact handling, configure auto_submit_time already in UTC in settings
+        $configuredTime = $settings['auto_submit_time'] ?? '11:00'; // 11:00 UTC = 12:00 CET
         if (!$this->isWithinTimeWindow($configuredTime, 7)) {
             return;
         }
 
-        $this->getLogger(__METHOD__)->info('TranslandShipping::cron.start', [
+        $this->getLogger(__METHOD__)->error('TranslandShipping::cron.start', [
             'time' => date('H:i:s'),
         ]);
 
@@ -52,7 +56,7 @@ class DailyShippingListCron extends CronHandler
             $returnList = (bool)($settings['return_ladeliste_pdf'] ?? true);
             $result     = $this->shippingListService->submitDailyShipments(date('Y-m-d'), $returnList);
 
-            $this->getLogger(__METHOD__)->info('TranslandShipping::cron.success', [
+            $this->getLogger(__METHOD__)->error('TranslandShipping::cron.success', [
                 'result'         => $result['result'],
                 'shipment_count' => $result['shipment_count'] ?? 0,
                 'list_id'        => $result['list_id'] ?? null,

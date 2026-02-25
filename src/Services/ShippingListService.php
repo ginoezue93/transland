@@ -60,11 +60,6 @@ class ShippingListService
             $borderoDate = date('Y-m-d', strtotime('+1 day'));
         }
 
-        // Falls explizit ein $pickupDate übergeben wurde, überschreibt dieses unsere Berechnung
-        if (!empty($pickupDate)) {
-            $borderoDate = $pickupDate;
-        }
-
         $this->getLogger(__METHOD__)->info('TranslandShipping::bordero.date_calculated', [
             'today' => date('l'),
             'calculated_pickup' => $borderoDate
