@@ -1,13 +1,13 @@
 {
   "name": "TranslandShipping",
   "namespace": "TranslandShipping",
-  "author": "Your Company",
+  "author": "passformdigital",
   "keywords": ["transland", "zufall", "shipping", "spedition"],
   "description": "Transland Zufall Logistics Speditionsschnittstelle",
-  "email": "info@yourcompany.de",
+  "email": "service@passform.digital",
   "phone": "",
-  "homepage": "https://yourcompany.de",
-  "version": "3.0.3",
+  "homepage": "https://passformdigital.com/",
+  "version": "1.1.0",
   "license": "proprietary",
   "type": "backend",
   "require": [
