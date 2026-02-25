@@ -119,7 +119,7 @@ class ShippingListService
                     $emailService = pluginApp(\TranslandShipping\Services\EmailService::class);
 
                     // WICHTIG: Die 0 signalisiert dem EmailService: "Das ist ein Bordero!"
-                    $emailService->sendLabelEmail($$apiResponse['listPDF'], 0);
+                    $emailService->sendLabelEmail($apiResponse['listPDF'], 0);
 
                     $this->getLogger(__METHOD__)->info('TranslandShipping::bordero.mail_sent', [
                         'list_id' => $listId
