@@ -51,6 +51,5 @@ class TranslandServiceProvider extends ServiceProvider
             '\TranslandShipping\Procedures\BorderoProcedure@run'
         );
 
-        $this->getApplication()->register(TranslandScheduleProvider::class);
     }
 }

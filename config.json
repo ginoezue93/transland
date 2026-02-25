@@ -114,24 +114,6 @@
   },
   {
     "tab": "Etikett & Tagesabschluss",
-    "key": "auto_submit_enabled",
-    "label": "Automatischer Tagesabschluss aktiv",
-    "type": "dropdown",
-    "default": "1",
-    "possibleValues": {
-      "1": "Ja",
-      "0": "Nein"
-    }
-  },
-  {
-    "tab": "Etikett & Tagesabschluss",
-    "key": "auto_submit_time",
-    "label": "Uhrzeit für automatischen Tagesabschluss (HH:MM) in UTC",
-    "type": "text",
-    "default": "17:00"
-  },
-  {
-    "tab": "Etikett & Tagesabschluss",
     "key": "return_ladeliste_pdf",
     "label": "Ladeliste PDF beim Tagesabschluss anfordern",
     "type": "dropdown",
