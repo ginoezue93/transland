@@ -126,7 +126,7 @@
   {
     "tab": "Etikett & Tagesabschluss",
     "key": "auto_submit_time",
-    "label": "Uhrzeit für automatischen Tagesabschluss (HH:MM)",
+    "label": "Uhrzeit für automatischen Tagesabschluss (HH:MM) in UTC",
     "type": "text",
     "default": "17:00"
   },
