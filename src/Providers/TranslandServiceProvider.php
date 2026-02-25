@@ -13,6 +13,8 @@ use TranslandShipping\Services\SettingsService;
 use TranslandShipping\Services\PayloadBuilderService;
 use TranslandShipping\Procedures\ShippingProcedure;
 use TranslandShipping\Procedures\BorderoProcedure;
+use Plenty\Modules\Cron\Services\CronContainer;
+use TranslandShipping\Cron\DailyShippingListCron;
 
 class TranslandServiceProvider extends ServiceProvider
 {
@@ -29,7 +31,7 @@ class TranslandServiceProvider extends ServiceProvider
         $this->getApplication()->singleton(ShippingListService::class);
     }
 
-    public function boot(EventProceduresService $eventProceduresService): void
+    public function boot(EventProceduresService $eventProceduresService, CronContainer $cronContainer): void
     {
         $eventProceduresService->registerProcedure(
             'TranslandShipping',
@@ -51,5 +53,7 @@ class TranslandServiceProvider extends ServiceProvider
             '\TranslandShipping\Procedures\BorderoProcedure@run'
         );
 
+        // Register daily cron job
+        $cronContainer->add(CronContainer::DAILY, DailyShippingListCron::class, 0);
     }
 }
