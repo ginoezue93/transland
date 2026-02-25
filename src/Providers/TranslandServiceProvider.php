@@ -54,6 +54,6 @@ class TranslandServiceProvider extends ServiceProvider
         );
 
         // Register daily cron job
-        $cronContainer->add(CronContainer::EVERY_FIFTEEN_MINUTES, DailyShippingListCron::class, 0);
+        $cronContainer->add(CronContainer::DAILY, DailyShippingListCron::class, 0);
     }
 }

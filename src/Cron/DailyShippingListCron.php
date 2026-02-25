@@ -19,12 +19,33 @@ class DailyShippingListCron extends CronHandler
 
     public function handle(): void
     {
+        // Wochenende überspringen (Sa=6, So=7)
+        $dow = (int)date('N');
+        if ($dow >= 6) {
+            return;
+        }
+
+        // Zeitfenster-Check: nur um 12:00 Berliner Zeit ausführen (±30 Min)
+        // Server läuft auf UTC: Winter UTC+1, Sommer UTC+2
+        $utcMonth = (int)date('n');
+        $offsetSeconds = ($utcMonth >= 4 && $utcMonth <= 10) ? 7200 : 3600;
+        $berlinHour   = (int)date('G', time() + $offsetSeconds);
+        $berlinMinute = (int)date('i', time() + $offsetSeconds);
+        $berlinMinutes = $berlinHour * 60 + $berlinMinute;
+        $targetMinutes = 12 * 60; // 12:00
+        $diff = $berlinMinutes - $targetMinutes;
+        $diff = max($diff, -$diff);
+        if ($diff > 30) {
+            return;
+        }
+
         /** @var SettingsService $settingsService */
         $settingsService = pluginApp(SettingsService::class);
         $settings        = $settingsService->getSettings();
 
         $this->getLogger(__METHOD__)->error('TranslandShipping::cron.start', [
-            'time' => date('H:i:s'),
+            'time'       => date('H:i:s'),
+            'berlin_time' => $berlinHour . ':' . str_pad((string)$berlinMinute, 2, '0', 0),
         ]);
 
         try {

@@ -66,7 +66,6 @@ class LabelService
             'procurement'       => false,
             'franking'          => '1',
             'reference'         => $reference,
-            // value in EUR als String gespeichert, im Bordero wird auf Int gerundet
             'value'             => (string)round(($payload['value'] ?? 0) / 100, 2),
             'value_currency'    => $payload['value_currency'] ?? 'EUR',
             'weight_gr'         => (int)($payload['weight_gr'] ?? 0),
