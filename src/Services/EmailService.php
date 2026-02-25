@@ -25,7 +25,8 @@ class EmailService
         $settings = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
-        if (empty($recipient)) return;
+        if (empty($recipient))
+            return;
 
         // Base64 bereinigen (Präfix entfernen, falls vorhanden)
         if (strpos($labelBase64, 'base64,') !== false) {
@@ -38,33 +39,35 @@ class EmailService
 
         // Berechnung der Größe in KB für den Validator
         $decodedData = base64_decode($labelBase64);
-        $sizeInKb = (int)ceil(strlen($decodedData) / 1024);
+        $sizeInKb = (int) ceil(strlen($decodedData) / 1024);
 
         try {
             $mailData = [
                 "account" => [
-                    "type" => "messenger_inbox", 
-                    "id"   => (int)($settings['messenger_id'] ?? 1),
+                    "type" => "messenger_inbox",
+                    "id" => 1,
                     "name" => "Transland Messenger", // Pflichtfeld laut deiner Liste
                     "from" => [
-                        "name"    => "Transland Logistik",
+                        "name" => "Transland Logistik",
                         "address" => $settings['sender_email'] ?? ''
                     ]
                 ],
                 "to" => [
                     [
-                        "name"    => "Versandabteilung",
+                        "name" => "Versandabteilung",
                         "address" => $recipient
                     ]
                 ],
+                "cc" => [],
+                "bcc" => [],
                 "subject" => 'Transland Label - Auftrag ' . $orderId,
-                "body"    => 'Anbei das Versandlabel für Auftrag ' . $orderId . '.',
+                "body" => 'Anbei das Versandlabel für Auftrag ' . $orderId . '.',
                 "attachments" => [
-                    [
-                        "name"        => $filename,
-                        "body"        => $labelBase64, 
-                        "size"        => $sizeInKb, // Jetzt explizit in KB
-                        "contentType" => $mimeType
+                    (object) [
+                        "name" => (string) $filename,
+                        "body" => (string) $labelBase64,
+                        "size" => (int) $sizeInKb,
+                        "contentType" => (string) $mimeType
                     ]
                 ]
             ];
