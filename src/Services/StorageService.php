@@ -70,26 +70,47 @@ class StorageService
      */
     public static function calcPickupDate(string $fromDate = ''): string
     {
-        $ts  = !empty($fromDate) ? strtotime($fromDate) : time();
-        $dow = (int)date('N', $ts); // 1=Mo, 5=Fr, 6=Sa, 7=So
+        // PlentyONE server runs on UTC – use Europe/Berlin for correct weekday calculation
+        $tz = new \DateTimeZone('Europe/Berlin');
 
-        if ($dow === 5) {
-            $ts = strtotime('+3 days', $ts); // Freitag -> Montag
-        } elseif ($dow === 6) {
-            $ts = strtotime('+2 days', $ts); // Samstag -> Montag
-        } elseif ($dow === 7) {
-            $ts = strtotime('+1 day',  $ts); // Sonntag -> Montag
+        if (!empty($fromDate)) {
+            $dt = new \DateTime($fromDate, $tz);
         } else {
-            $ts = strtotime('+1 day',  $ts); // Mo-Do -> nächster Tag
+            $dt = new \DateTime('now', $tz);
         }
 
-        return date('Y-m-d', $ts);
+        $dow  = (int)$dt->format('N'); // 1=Mo ... 7=So
+        $hour = (int)$dt->format('G'); // 0-23
+
+        $afterBordero = $hour >= 12;
+
+        if ($dow === 5) {
+            // Freitag
+            if ($afterBordero) {
+                $dt->modify('+4 days'); // -> Dienstag
+            } else {
+                $dt->modify('+3 days'); // -> Montag
+            }
+        } elseif ($dow === 6) {
+            // Samstag (kein Bordero, aber der Fall)
+            $dt->modify('+2 days'); // -> Montag
+        } elseif ($dow === 7) {
+            // Sonntag
+            $dt->modify('+1 day'); // -> Montag
+        } else {
+            // Mo-Do
+            if ($afterBordero) {
+                $dt->modify('+2 days'); // -> übernächster Werktag
+            } else {
+                $dt->modify('+1 day'); // -> nächster Werktag
+            }
+        }
+
+        return $dt->format('Y-m-d');
     }
 
     public function getPendingShipments(string $newerThan = ''): array
     {
-        // TEST-MODUS: alle heutigen Sendungen ab 00:00
-        // TODO: nach Test zurückstellen auf: date('Y-m-d', strtotime('yesterday')) . ' 12:00:00'
         if (!empty($newerThan)) {
             $from = $newerThan . ' 00:00:00';
         } else {
@@ -168,10 +189,6 @@ class StorageService
             ->get();
     }
 
-    /**
-     * Wandelt einen DB-Record in das Bordero-Shipment-Array um.
-     * shipper_address wird nicht gespeichert - kommt immer frisch aus den Settings.
-     */
     private function recordToShipmentArray(Shipment $record): array
     {
         /** @var SettingsService $settings */
