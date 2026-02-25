@@ -30,7 +30,6 @@ class ShippingListService
      */
     public function submitDailyShipments(string $pickupDate = '', bool $returnList = true): array
     {
-        // Alle pending Shipments holen
         $pendingShipments = $this->storageService->getPendingShipments($pickupDate);
 
         if (empty($pendingShipments)) {
@@ -43,10 +42,33 @@ class ShippingListService
             ];
         }
 
-        // pickup_date für den Bordero: entweder übergeben oder heute
-        $borderoDate = !empty($pickupDate) ? $pickupDate : date('Y-m-d');
+        // 1. Aktueller Wochentag (1 = Mo, 5 = Fr, 6 = Sa, 7 = So)
+        $todayN = (int) date('N');
 
-        // Sendungen nach pickup_date gruppieren → separate Bordero-Aufrufe pro Tag
+        // 2. Ziel-Datum berechnen (Werktag danach)
+        if ($todayN >= 1 && $todayN <= 4) {
+            // Mo bis Do -> Abholung morgen
+            $borderoDate = date('Y-m-d', strtotime('+1 day'));
+        } elseif ($todayN === 5) {
+            // Freitag -> Abholung Montag (+3 Tage)
+            $borderoDate = date('Y-m-d', strtotime('+3 days'));
+        } elseif ($todayN === 6) {
+            // Samstag -> Abholung Montag (+2 Tage)
+            $borderoDate = date('Y-m-d', strtotime('+2 days'));
+        } else {
+            // Sonntag -> Abholung Montag (+1 Tag)
+            $borderoDate = date('Y-m-d', strtotime('+1 day'));
+        }
+
+        // Falls explizit ein $pickupDate übergeben wurde, überschreibt dieses unsere Berechnung
+        if (!empty($pickupDate)) {
+            $borderoDate = $pickupDate;
+        }
+
+        $this->getLogger(__METHOD__)->info('TranslandShipping::bordero.date_calculated', [
+            'today' => date('l'),
+            'calculated_pickup' => $borderoDate
+        ]);
         $grouped = [];
         foreach ($pendingShipments as $shipment) {
             $date = $shipment['pickup_date'] ?? $borderoDate;
@@ -60,66 +82,39 @@ class ShippingListService
 
         foreach ($grouped as $date => $shipments) {
             $listId = 'LIST-' . str_replace('-', '', $date) . '-' . time();
-
-            $borderoPayload = $this->payloadBuilder->buildBorderoPayload(
-                $shipments,
-                $date,
-                $listId
-            );
-
-            // FULL PAYLOAD LOG – zeigt exakt was an die API gesendet wird
-            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.sending', [
-                'plugin_version' => '3.5.0',
-                'pickup_date' => $date,
-                'shipment_count' => count($shipments),
-                'list_id' => $listId,
-                'raw_shipments_from_db' => $shipments,
-                'payload_shippings' => $borderoPayload['shippings'] ?? [],
-                'first_shipping_keys' => !empty($borderoPayload['shippings'])
-                    ? array_keys($borderoPayload['shippings'][0])
-                    : [],
-                'first_shipper_address' => $borderoPayload['shippings'][0]['shipper_address'] ?? 'MISSING',
-                'full_payload_json' => json_encode($borderoPayload),
-            ]);
+            $borderoPayload = $this->payloadBuilder->buildBorderoPayload($shipments, $date, $listId);
 
             try {
                 $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
             } catch (\Throwable $apiEx) {
+                // FIX: get_class() und dynamische Exception-Logs vermeiden
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.apiException', [
                     'list_id' => $listId,
-                    'exception' => $apiEx->getMessage(),
-                    'class' => get_class($apiEx),
-                    'file' => $apiEx->getFile(),
-                    'line' => $apiEx->getLine(),
-                    'trace' => substr($apiEx->getTraceAsString(), 0, 1000),
+                    'exception' => $apiEx->getMessage()
                 ]);
                 continue;
             }
 
-            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.response', [
-                'list_id' => $listId,
-                'api_result' => $apiResponse['result'] ?? $apiResponse['status'] ?? 'MISSING',
-                'has_listPDF' => !empty($apiResponse['listPDF']) ? 'JA' : 'NEIN',
-                'sscc_count' => count($apiResponse['SSCCs'] ?? []),
-                'full_response' => substr(json_encode($apiResponse), 0, 300),
-            ]);
+            // Sicherstellen, dass api_result ein String ist (kein dynamisches Object)
+            $apiResult = (string) ($apiResponse['result'] ?? $apiResponse['status'] ?? 'MISSING');
 
-            if (($apiResponse['result'] ?? $apiResponse['status'] ?? '') !== 'ok') {
+            if ($apiResult !== 'ok') {
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.unexpectedResult', [
-                    'list_id' => $listId,
-                    'full_response' => json_encode($apiResponse),
+                    'list_id' => $listId
                 ]);
                 continue;
             }
 
             $submittedOrderIds = array_column($shipments, 'order_id');
-            if (!empty($apiResponse['listPDF'])) {
-                try {
-                    // Wir holen den Service direkt per pluginApp, falls die Injection hakt
-                    $emailService = pluginApp(\TranslandShipping\Services\EmailService::class);
 
-                    // WICHTIG: Die 0 signalisiert dem EmailService: "Das ist ein Bordero!"
-                    $emailService->sendLabelEmail($apiResponse['listPDF'], 0);
+            // Check auf PDF - Zugriff über Array-Key ist sicher
+            $currentPDF = $apiResponse['listPDF'] ?? null;
+
+            if (!empty($currentPDF)) {
+                try {
+                    /** @var \TranslandShipping\Services\EmailService $emailService */
+                    $emailService = pluginApp(\TranslandShipping\Services\EmailService::class);
+                    $emailService->sendLabelEmail((string) $currentPDF, 0);
 
                     $this->getLogger(__METHOD__)->info('TranslandShipping::bordero.mail_sent', [
                         'list_id' => $listId
@@ -130,17 +125,16 @@ class ShippingListService
                     ]);
                 }
             } else {
-                // DAS HIER IST WICHTIG: Wenn das PDF fehlt, müssen wir es wissen!
                 $this->getLogger(__METHOD__)->warning('TranslandShipping::bordero.no_pdf_in_response', [
-                    'list_id' => $listId,
-                    'response' => json_encode($apiResponse)
+                    'list_id' => $listId
                 ]);
             }
+
             $this->storageService->markShipmentsAsSubmitted($submittedOrderIds, $listId);
 
             $allSubmittedOrderIds = array_merge($allSubmittedOrderIds, $submittedOrderIds);
             $lastListId = $listId;
-            $lastListPDF = $apiResponse['listPDF'] ?? null;
+            $lastListPDF = $currentPDF;
             $totalCount += count($shipments);
         }
 
@@ -152,7 +146,6 @@ class ShippingListService
             'submitted_order_ids' => $allSubmittedOrderIds,
         ];
     }
-
     public function getPendingShipments(string $date = ''): array
     {
         return $this->storageService->getPendingShipments($date);
