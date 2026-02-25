@@ -43,7 +43,7 @@ class EmailService
 
         try {
             $mailData = [
-                "account" =>  (object)[
+                "account" => [
                     "type" => "messenger_inbox",
                     "id" => 1,
                     "name" => "Allgemeiner Kanal", // Pflichtfeld laut deiner Liste
@@ -53,7 +53,7 @@ class EmailService
                     ]
                 ],
                 "to" => [
-                     (object)[
+                    [
                         "name" => "Versandabteilung",
                         "address" => $recipient
                     ]
@@ -63,7 +63,7 @@ class EmailService
                 "subject" => 'Transland Label - Auftrag ' . $orderId,
                 "body" => 'Anbei das Versandlabel für Auftrag ' . $orderId . '.',
                 "attachments" => [
-                    (object) [
+                    [
                         "name" => (string) $filename,
                         "body" => (string) $labelBase64,
                         "size" => (int) $sizeInKb,
