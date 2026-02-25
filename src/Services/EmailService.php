@@ -20,53 +20,36 @@ class EmailService
         $this->emailSendService = $emailSendService;
     }
 
-    /**
-     * Versendet ein PDF (Label oder Ladeliste) per E-Mail.
-     * * @param string $pdfBase64  Das PDF als Base64 String
-     * @param int $orderId       Die Auftrags-ID (0 für Ladelisten/Bordero)
-     * @param string $format     Das Format (PDF/ZPL)
-     */
-    public function sendLabelEmail(string $pdfBase64, int $orderId, string $format = 'PDF'): void
+    public function sendLabelEmail(string $labelBase64, int $orderId, string $format = 'PDF'): void
     {
         $settings = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
-        if (empty($recipient) || empty($pdfBase64)) {
+        if (empty($recipient))
             return;
-        }
 
-        // Base64 bereinigen (Header entfernen, falls vorhanden)
-        if (strpos($pdfBase64, 'base64,') !== false) {
-            $pdfBase64 = substr($pdfBase64, strpos($pdfBase64, 'base64,') + 7);
+        // Base64 bereinigen (Präfix entfernen, falls vorhanden)
+        if (strpos($labelBase64, 'base64,') !== false) {
+            $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
-        $pdfBase64 = str_replace(["\r", "\n", " "], '', $pdfBase64);
 
         $extension = strtolower($format) === 'zpl' ? 'zpl' : 'pdf';
+        $filename = 'label-auftrag-' . $orderId . '.' . $extension;
         $mimeType = ($extension === 'pdf') ? 'application/pdf' : 'text/plain';
 
-        // Dynamischer Dateiname und Betreff
-        if ($orderId > 0) {
-            $filename = 'Labels_Auftrag_' . $orderId . '.' . $extension;
-            $subject = 'Transland Versandlabels - Auftrag ' . $orderId;
-            $body = 'Anbei erhalten Sie die Versandlabels für Auftrag ' . $orderId . '.';
-        } else {
-            $filename = 'Ladeliste_Transland_' . date('d-m-Y') . '.' . $extension;
-            $subject = 'Transland Ladeliste / Bordero - ' . date('d.m.Y');
-            $body = 'Anbei erhalten Sie die aktuelle Ladeliste (Bordero) vom ' . date('d.m.Y') . '.';
-        }
+        // Berechnung der Größe in KB für den Validator
+        $decodedData = base64_decode($labelBase64);
+        $sizeInKb = (int) ceil(strlen($decodedData) / 1024);
 
         try {
-            // Berechnung der Größe in KB für den Validator
-            $sizeInKb = (int) ceil(strlen(base64_decode($pdfBase64)) / 1024);
-
             $mailData = [
                 "account" => [
                     "type" => "messenger_inbox",
                     "id" => 1,
-                    "name" => "Allgemeiner Kanal",
+                    "name" => "info", 
                     "from" => [
-                        "name" => "Allgemeiner Kanal",
-                        "address" => trim((string) ($settings['ginoezue@gmail.com'] ?? ''))
+                        "name" => "info",
+                        "address" => "info@venturama-solar.de"
                     ]
                 ],
                 "to" => [
@@ -75,24 +58,24 @@ class EmailService
                         "address" => $recipient
                     ]
                 ],
-                "subject" => $subject,
-                "body" => $body,
+                "cc" => [],
+                "bcc" => [],
+                "subject" => 'Transland Label  ' . $orderId,
+                "body" => 'Anbei die Versandlabel',
                 "attachments" => [
                     [
                         "name" => (string) $filename,
-                        "body" => (string) $pdfBase64,
-                        "size" => $sizeInKb > 0 ? $sizeInKb : 1,
+                        "body" => (string) $labelBase64,
+                        "size" => (int) $sizeInKb,
                         "contentType" => (string) $mimeType
                     ]
                 ]
             ];
 
-            $this->emailSendService->sendPreview($mailData);
+            // Versand-Log
+            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.attempt', ['orderId' => $orderId]);
 
-            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.success', [
-                'orderId' => $orderId,
-                'type' => $orderId > 0 ? 'Label' : 'Bordero'
-            ]);
+            $this->emailSendService->sendPreview($mailData);
 
         } catch (\Throwable $e) {
             $this->getLogger(__CLASS__)->error('TranslandShipping::mail.error', [
