@@ -51,14 +51,13 @@ class EmailService
                 // 'account' Mapping
                 "account" => [
                     "type" => "webstore", // oder messenger_inbox
-                    "id"   =>  1,
+                    "id"   =>  0,
                     "from" => [
                         "name"    => "Transland Logistik",
                         "address" => $settings['sender_email'] ?? ''
                     ]
                 ],
 
-                // 'to' Mapping (Array von Objekten mit 'name' und 'address')
                 "to" => [
                     [
                         "name"    => "Versandabteilung",
@@ -69,7 +68,6 @@ class EmailService
                 "subject" => 'Transland Label - Auftrag ' . $orderId,
                 "body"    => 'Anbei das Versandlabel für Auftrag ' . $orderId . '.',
 
-                // 'attachments' Mapping (Wichtig: 'body' statt 'content' für den File-Inhalt)
                 "attachments" => [
                     [
                         "name"        => $filename,
@@ -80,8 +78,6 @@ class EmailService
                 ]
             ];
 
-            // In deinem Test-Account wird das ohne echtes Konto trotzdem validieren wollen.
-            // Zum Testen der Struktur kannst du die nächste Zeile auskommentieren:
             $this->emailSendService->sendPreview($mailData);
 
             $this->getLogger(__METHOD__)->info('TranslandShipping::email.sent_success', ['orderId' => $orderId]);
