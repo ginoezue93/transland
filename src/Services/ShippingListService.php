@@ -113,13 +113,13 @@ class ShippingListService
             }
 
             $submittedOrderIds = array_column($shipments, 'order_id');
-            if (!empty($currentListPDF)) {
+            if (!empty($apiResponse['listPDF'])) {
                 try {
                     // Wir holen den Service direkt per pluginApp, falls die Injection hakt
                     $emailService = pluginApp(\TranslandShipping\Services\EmailService::class);
 
                     // WICHTIG: Die 0 signalisiert dem EmailService: "Das ist ein Bordero!"
-                    $emailService->sendLabelEmail($currentListPDF, 0);
+                    $emailService->sendLabelEmail($$apiResponse['listPDF'], 0);
 
                     $this->getLogger(__METHOD__)->info('TranslandShipping::bordero.mail_sent', [
                         'list_id' => $listId

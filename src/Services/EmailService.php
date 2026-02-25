@@ -40,13 +40,18 @@ class EmailService
         // Berechnung der Größe in KB für den Validator
         $decodedData = base64_decode($labelBase64);
         $sizeInKb = (int) ceil(strlen($decodedData) / 1024);
-
+        $subject = "leer";
+        if ($orderId > 0) {
+            $subject = 'Labels Auftrag ' . $orderId;
+        } else {
+            $subject = 'Ladeliste / Bordero Transland ' . date('d.m.Y');
+        }
         try {
             $mailData = [
                 "account" => [
                     "type" => "messenger_inbox",
                     "id" => 1,
-                    "name" => "info", 
+                    "name" => "info",
                     "from" => [
                         "name" => "info",
                         "address" => "info@venturama-solar.de"
@@ -60,7 +65,7 @@ class EmailService
                 ],
                 "cc" => [],
                 "bcc" => [],
-                "subject" => 'Transland Label  ' . $orderId,
+                "subject" => $subject,
                 "body" => 'Anbei die Versandlabel',
                 "attachments" => [
                     [
