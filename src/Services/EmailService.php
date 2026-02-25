@@ -43,17 +43,17 @@ class EmailService
 
         try {
             $mailData = [
-                "account" => [
+                "account" =>  (object)[
                     "type" => "messenger_inbox",
                     "id" => 1,
-                    "name" => "Transland Messenger", // Pflichtfeld laut deiner Liste
+                    "name" => "Allgemeiner Kanal", // Pflichtfeld laut deiner Liste
                     "from" => [
-                        "name" => "Transland Logistik",
-                        "address" => $settings['sender_email'] ?? ''
+                        "name" => "Allgemeiner Kanal",
+                        "address" => "ginoezue@gmail.com"
                     ]
                 ],
                 "to" => [
-                    [
+                     (object)[
                         "name" => "Versandabteilung",
                         "address" => $recipient
                     ]
