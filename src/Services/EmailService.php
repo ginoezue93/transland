@@ -5,10 +5,6 @@ namespace TranslandShipping\Services;
 use Plenty\Modules\Mail\Templates\Contracts\Service\EmailService\EmailTemplatesSendServiceContract;
 use Plenty\Plugin\Log\Loggable;
 
-/**
- * Class EmailService
- * Versendet Emails über den Messenger-Kanal und loggt den Status.
- */
 class EmailService
 {
     use Loggable;
@@ -29,14 +25,9 @@ class EmailService
         $settings = $this->settingsService->getSettings();
         $recipient = trim($settings['label_email'] ?? '');
 
-        if (empty($recipient)) {
-            $this->getLogger(__CLASS__)->warning('TranslandShipping::mail.noRecipient', [
-                'orderId' => $orderId
-            ]);
-            return;
-        }
+        if (empty($recipient)) return;
 
-        // Base64 bereinigen
+        // Base64 bereinigen (Präfix entfernen, falls vorhanden)
         if (strpos($labelBase64, 'base64,') !== false) {
             $labelBase64 = substr($labelBase64, strpos($labelBase64, 'base64,') + 7);
         }
@@ -45,11 +36,16 @@ class EmailService
         $filename = 'label-auftrag-' . $orderId . '.' . $extension;
         $mimeType = ($extension === 'pdf') ? 'application/pdf' : 'text/plain';
 
+        // Berechnung der Größe in KB für den Validator
+        $decodedData = base64_decode($labelBase64);
+        $sizeInKb = (int)ceil(strlen($decodedData) / 1024);
+
         try {
             $mailData = [
                 "account" => [
                     "type" => "messenger_inbox", 
-                    "id"   => (int)($settings['messenger_id'] ?? 1), 
+                    "id"   => (int)($settings['messenger_id'] ?? 1),
+                    "name" => "Transland Messenger", // Pflichtfeld laut deiner Liste
                     "from" => [
                         "name"    => "Transland Logistik",
                         "address" => $settings['sender_email'] ?? ''
@@ -67,29 +63,21 @@ class EmailService
                     [
                         "name"        => $filename,
                         "body"        => $labelBase64, 
-                        "size"        => strlen(base64_decode($labelBase64)), // Größe in Bytes
+                        "size"        => $sizeInKb, // Jetzt explizit in KB
                         "contentType" => $mimeType
                     ]
                 ]
             ];
 
-            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.sending', [
-                'orderId'   => $orderId,
-                'recipient' => $recipient,
-                'messengerId' => $mailData['account']['id']
-            ]);
+            // Versand-Log
+            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.attempt', ['orderId' => $orderId]);
 
             $this->emailSendService->sendPreview($mailData);
 
-            $this->getLogger(__CLASS__)->info('TranslandShipping::mail.success', [
-                'orderId' => $orderId
-            ]);
-
         } catch (\Throwable $e) {
             $this->getLogger(__CLASS__)->error('TranslandShipping::mail.error', [
-                'orderId' => $orderId,
                 'message' => $e->getMessage(),
-                'trace'   => $e->getTraceAsString()
+                'orderId' => $orderId
             ]);
         }
     }
