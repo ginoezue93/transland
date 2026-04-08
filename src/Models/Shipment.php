@@ -7,11 +7,13 @@ use Plenty\Modules\Plugin\DataBase\Contracts\Model;
 /**
  * @property int    $id
  * @property int    $orderId
+ * @property int    $parentOrderId
  * @property string $pickupDate
  * @property string $listId
  * @property int    $submitted
- *
- * Consignee
+ * @property int    $labelPrinted
+ * @property string $zplData
+ * @property int    $hasHazmat
  * @property string $consigneeName1
  * @property string $consigneeName2
  * @property string $consigneeStreet
@@ -21,21 +23,16 @@ use Plenty\Modules\Plugin\DataBase\Contracts\Model;
  * @property string $consigneePhone
  * @property string $consigneeEmail
  * @property string $consigneeContact
- *
- * Shipment details
  * @property string $reference
  * @property string $value
  * @property string $valueCurrency
  * @property int    $weightGr
- *
- * Complex fields as JSON (small)
  * @property string $packagesJson
  * @property string $optionsJson
- *
  * @property string $createdAt
  * @property string $updatedAt
  *
- * @Nullable(columns={"listId","consigneeName2","consigneePhone","consigneeEmail","consigneeContact"})
+ * @Nullable(columns={"listId","consigneeName2","consigneePhone","consigneeEmail","consigneeContact","zplData"})
  */
 class Shipment extends Model
 {
@@ -43,11 +40,13 @@ class Shipment extends Model
 
     public $id               = 0;
     public $orderId          = 0;
+    public $parentOrderId    = 0;
     public $pickupDate       = '';
     public $listId           = '';
     public $submitted        = 0;
-
-    // Consignee
+    public $labelPrinted     = 0;
+    public $zplData          = '';
+    public $hasHazmat        = 0;
     public $consigneeName1   = '';
     public $consigneeName2   = '';
     public $consigneeStreet  = '';
@@ -57,17 +56,12 @@ class Shipment extends Model
     public $consigneePhone   = '';
     public $consigneeEmail   = '';
     public $consigneeContact = '';
-
-    // Shipment details
     public $reference        = '';
     public $value            = '0';
     public $valueCurrency    = 'EUR';
     public $weightGr         = 0;
-
-    // Complex fields
     public $packagesJson     = '[]';
     public $optionsJson      = '[]';
-
     public $createdAt        = '';
     public $updatedAt        = '';
 

@@ -26,7 +26,8 @@ class LabelService
         array $order,
         array $packages,
         string $format = 'PDF',
-        array $options = []
+        array $options = [],
+        string $fixedPickupDate = ''
     ): array {
         $orderId  = $order['id'];
         $settings = $this->settingsService->getSettings();
@@ -59,7 +60,7 @@ class LabelService
 
         $fullShipmentData = [
             'order_id'          => $orderId,
-            'pickup_date'       => \TranslandShipping\Services\StorageService::calcPickupDate(),
+            'pickup_date'       => !empty($fixedPickupDate) ? $fixedPickupDate : \TranslandShipping\Services\StorageService::calcPickupDate(),
             'shipper_address'   => $shipperAddress,
             'consignee_address' => $consigneeAddress,
             'loading_address'   => $shipperAddress,

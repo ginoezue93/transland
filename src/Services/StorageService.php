@@ -110,18 +110,36 @@ class StorageService
         return date('Y-m-d', strtotime('+' . $days . ' days', $utcTs));
     }
 
+    public function getZplForOrder(int $orderId): string
+    {
+        $records = $this->db()->query(Shipment::class)
+            ->where('orderId', '=', $orderId)
+            ->where('labelPrinted', '=', 1)
+            ->get();
+
+        if (empty($records)) { return ''; }
+
+        $latest = null;
+        foreach ($records as $record) {
+            if ($latest === null || $record->createdAt > $latest->createdAt) {
+                $latest = $record;
+            }
+        }
+        return $latest->zplData ?? '';
+    }
+
     public function getPendingShipments(string $newerThan = ''): array
     {
-        // TEST-MODUS: alle heutigen Sendungen ab 00:00
-        // TODO: nach Test zurückstellen auf: date('Y-m-d', strtotime('yesterday')) . ' 12:00:00'
         if (!empty($newerThan)) {
             $from = $newerThan . ' 00:00:00';
         } else {
             $from = date('Y-m-d') . ' 00:00:00';
         }
 
+        // Nur Shipments mit gedrucktem Label laden
         $records = $this->db()->query(Shipment::class)
             ->where('submitted', '=', 0)
+            ->where('labelPrinted', '=', 1)
             ->where('createdAt', '>=', $from)
             ->get();
 
@@ -141,9 +159,43 @@ class StorageService
             }
         }
 
+        // Bereitschaftscheck: nur Speditions-Lieferauftraege zaehlen
+        // DHL-Lieferauftraege (nicht in unserer DB) werden ignoriert
+        $ready = [];
+        foreach ($latestByOrder as $orderId => $record) {
+            $parentOrderId = (int)$record->parentOrderId;
+
+            if ($parentOrderId > 0) {
+                // Pruefen ob Speditions-Geschwister noch kein Label haben
+                $missingSiblings = $this->db()->query(Shipment::class)
+                    ->where('parentOrderId', '=', $parentOrderId)
+                    ->where('submitted', '=', 0)
+                    ->where('labelPrinted', '=', 0)
+                    ->get();
+
+                if (!empty($missingSiblings)) {
+                    $this->getLogger(__METHOD__)->error('TranslandShipping::storage.waitingForSiblings', [
+                        'orderId'        => $orderId,
+                        'parentOrderId'  => $parentOrderId,
+                        'stillMissing'   => count($missingSiblings),
+                        'note'           => 'DHL-Lieferauftraege werden ignoriert',
+                    ]);
+                    continue;
+                }
+            }
+
+            $ready[$orderId] = $record;
+        }
+
+        $this->getLogger(__METHOD__)->error('TranslandShipping::storage.pendingResult', [
+            'totalRecords' => count($latestByOrder),
+            'readyCount'   => count($ready),
+            'from'         => $from,
+        ]);
+
         return array_values(array_map(function (Shipment $record) {
             return $this->recordToShipmentArray($record);
-        }, $latestByOrder));
+        }, $ready));
     }
 
     public function markShipmentsAsSubmitted(array $orderIds, string $listId): void
