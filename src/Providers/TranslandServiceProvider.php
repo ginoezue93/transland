@@ -30,14 +30,15 @@ class TranslandServiceProvider extends ServiceProvider
         $this->getApplication()->singleton(ShippingListService::class);
     }
 
-    public function boot(
-        ShippingServiceProviderService $shippingServiceProviderService,
-        EventProceduresService         $eventProceduresService,
-        CronContainer                  $cronContainer
-    ): void {
+    /**
+     * Boot method – only ShippingServiceProviderService as parameter.
+     * Following the official PlentyONE shipping plugin tutorial exactly.
+     * Other services (EventProcedures, Cron) are resolved via pluginApp().
+     */
+    public function boot(ShippingServiceProviderService $shippingServiceProviderService): void
+    {
         // ── Shipping Provider registrieren ───────────────────────────────────
-        // Macht TranslandShipping zu einem nativen Versanddienstleister.
-        // Erscheint als Option in: Einrichtung -> Versand -> Versanddienstleister
+        // Erscheint als Option in: Setup -> Orders -> Shipping -> Shipping service providers
         // Und in Prozess-Aktion "RegisterShipment" als "Transland Zufall Spedition"
         $shippingServiceProviderService->registerShippingProvider(
             'TranslandShipping',
@@ -51,7 +52,9 @@ class TranslandServiceProvider extends ServiceProvider
             ]
         );
 
-        // ── Bordero Ereignisaktion registrieren ───────────────────────────────
+        // ── Bordero Ereignisaktion ────────────────────────────────────────────
+        /** @var EventProceduresService $eventProceduresService */
+        $eventProceduresService = pluginApp(EventProceduresService::class);
         $eventProceduresService->registerProcedure(
             'TranslandShipping',
             ProcedureEntry::EVENT_TYPE_ORDER,
@@ -63,7 +66,8 @@ class TranslandServiceProvider extends ServiceProvider
         );
 
         // ── Taeglicher Cron-Job ───────────────────────────────────────────────
-        // Laueft taeglich, prueft intern ob 12:00 Berliner Zeit ±30 Min
+        /** @var CronContainer $cronContainer */
+        $cronContainer = pluginApp(CronContainer::class);
         $cronContainer->add(CronContainer::DAILY, DailyShippingListCron::class, 0);
     }
 }
