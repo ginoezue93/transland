@@ -16,6 +16,10 @@ class TranslandRouteServiceProvider extends RouteServiceProvider
             ['v1'],
             ['namespace' => 'TranslandShipping\\Controllers', 'middleware' => 'oauth'],
             function (ApiRouter $apiRouter) {
+                // Diagnose-Endpoints (fuer Debugging)
+                $apiRouter->get('transland/diagnostics/providers',            'DiagnosticsController@listProviders');
+                $apiRouter->post('transland/diagnostics/register/{orderId}',  'DiagnosticsController@triggerRegister');
+
                 // Bordero-Endpoints
                 $apiRouter->post('transland/submit-day',    'ShippingListController@submitDailyShipments');
                 $apiRouter->get('transland/pending',        'ShippingListController@getPendingShipments');
