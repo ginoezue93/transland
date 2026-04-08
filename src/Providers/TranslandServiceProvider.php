@@ -16,12 +16,35 @@ use TranslandShipping\Services\PayloadBuilderService;
 use TranslandShipping\Procedures\BorderoProcedure;
 use TranslandShipping\Cron\DailyShippingListCron;
 
+/**
+ * TranslandServiceProvider
+ *
+ * Main plugin service provider. Wires up:
+ *  - the REST route provider
+ *  - service container bindings
+ *  - the native shipping service provider registration
+ *  - the Bordero event procedure
+ *  - the daily Bordero cron
+ *
+ * IMPORTANT: In conjunction with the "shippingServiceProvider" block in
+ * plugin.json, the registerShippingProvider() call below makes
+ * TranslandShipping appear as a native carrier option under
+ *   Setup -> Orders -> Shipping -> Options -> Shipping service providers
+ * and routes the "Register shipment" process action to
+ * ShippingController::registerShipments().
+ */
 class TranslandServiceProvider extends ServiceProvider
 {
-    public function register(): void
+    /**
+     * Bind dependencies. No return type — some Stable 7 revisions are strict
+     * about matching the parent signature, which has no return type declared.
+     */
+    public function register()
     {
         $this->getApplication()->register(TranslandRouteServiceProvider::class);
+
         $this->getApplication()->bind(BorderoProcedure::class);
+
         $this->getApplication()->singleton(SettingsService::class);
         $this->getApplication()->singleton(TranslandApiService::class);
         $this->getApplication()->singleton(PayloadBuilderService::class);
@@ -31,15 +54,22 @@ class TranslandServiceProvider extends ServiceProvider
     }
 
     /**
-     * Boot method – only ShippingServiceProviderService as parameter.
-     * Following the official PlentyONE shipping plugin tutorial exactly.
-     * Other services (EventProcedures, Cron) are resolved via pluginApp().
+     * Boot: only ShippingServiceProviderService as a typed parameter — the
+     * remaining services are resolved via pluginApp() to avoid DI ordering
+     * issues during early boot.
      */
-    public function boot(ShippingServiceProviderService $shippingServiceProviderService): void
+    public function boot(ShippingServiceProviderService $shippingServiceProviderService)
     {
-        // ── Shipping Provider registrieren ───────────────────────────────────
-        // Erscheint als Option in: Setup -> Orders -> Shipping -> Shipping service providers
-        // Und in Prozess-Aktion "RegisterShipment" als "Transland Zufall Spedition"
+        // ── 1. Native Shipping Provider Registrierung ────────────────────────
+        //
+        // Der Key 'TranslandShipping' MUSS exakt dem Key im plugin.json-Block
+        // "shippingServiceProvider" entsprechen. plentymarkets verknüpft darüber
+        // die Backend-Carrier-Auswahl mit den Controller-Actions.
+        //
+        // Das dritte Argument ist ein Array aus "Controller@action"-Strings.
+        // Die Reihenfolge ist festgelegt:
+        //   [0] => registerShipments  (RegisterShipment Prozessaktion)
+        //   [1] => deleteShipments    (Stornierung)
         $shippingServiceProviderService->registerShippingProvider(
             'TranslandShipping',
             [
@@ -52,7 +82,7 @@ class TranslandServiceProvider extends ServiceProvider
             ]
         );
 
-        // ── Bordero Ereignisaktion ────────────────────────────────────────────
+        // ── 2. Bordero Ereignisaktion ────────────────────────────────────────
         /** @var EventProceduresService $eventProceduresService */
         $eventProceduresService = pluginApp(EventProceduresService::class);
         $eventProceduresService->registerProcedure(
@@ -65,9 +95,9 @@ class TranslandServiceProvider extends ServiceProvider
             '\\TranslandShipping\\Procedures\\BorderoProcedure@run'
         );
 
-        // ── Taeglicher Cron-Job ───────────────────────────────────────────────
+        // ── 3. Daily Bordero Cron ────────────────────────────────────────────
         /** @var CronContainer $cronContainer */
         $cronContainer = pluginApp(CronContainer::class);
-        $cronContainer->add(CronContainer::DAILY, DailyShippingListCron::class, 0);
+        $cronContainer->add(CronContainer::DAILY, DailyShippingListCron::class);
     }
 }

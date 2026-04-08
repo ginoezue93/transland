@@ -6,18 +6,32 @@
   },
   "namespace": "TranslandShipping",
   "author": "passformdigital",
-  "keywords": ["transland", "zufall", "shipping", "spedition", "freight"],
+  "keywords": [
+    "transland",
+    "zufall",
+    "shipping",
+    "spedition",
+    "freight"
+  ],
   "description": "Transland Zufall Logistics Speditionsschnittstelle",
   "email": "service@passform.digital",
   "phone": "",
   "homepage": "https://passformdigital.com/",
-  "version": "6.1.0",
+  "version": "6.2.1",
   "license": "proprietary",
   "type": "shipping",
   "require": [],
   "runOnBoot": true,
   "serviceProvider": "TranslandShipping\\Providers\\TranslandServiceProvider",
-  "runOnBuild": ["TranslandShipping\\Migrations\\CreateShipmentTableV6"],
+  "shippingServiceProvider": {
+    "TranslandShipping": {
+      "name": "Transland Zufall Spedition",
+      "translation": "TranslandShipping::ShippingServiceProvider.transland"
+    }
+  },
+  "runOnBuild": [
+    "TranslandShipping\\Migrations\\CreateShipmentTableV6"
+  ],
   "javaScriptFiles": [],
   "cssFiles": [],
   "containers": [],
