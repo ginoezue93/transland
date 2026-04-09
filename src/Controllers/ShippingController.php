@@ -603,8 +603,8 @@ class ShippingController extends Controller
 
             // Method returned something unexpected (empty / not a URL)
             $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlUnexpected', [
-                'note'       => 'getObjectUrl did not return a valid http(s) URL',
-                'returned'   => is_string($url) ? $url : gettype($url),
+                'note'     => 'getObjectUrl did not return a valid http(s) URL',
+                'returned' => is_string($url) ? $url : '<non-string>',
             ]);
         } catch (\Throwable $e) {
             $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlException', [
