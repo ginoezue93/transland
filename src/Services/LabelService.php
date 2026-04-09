@@ -71,7 +71,7 @@ class LabelService
             'value_currency'    => $payload['value_currency'] ?? 'EUR',
             'weight_gr'         => (int)($payload['weight_gr'] ?? 0),
             'options'           => $finalOptions,
-            'packages'          => $this->payloadBuilder->buildPackages($packagesWithSscc),
+            'packages'          => $this->payloadBuilder->buildPackages($packagesWithSscc, $order),
             'texts'             => $payload['texts'] ?? [],
             'label_printed_at'  => date('Y-m-d H:i:s'),
         ];

@@ -141,6 +141,13 @@ class ShippingController extends Controller
                     continue;
                 }
 
+                // Note: Haupt- und Lieferauftraege werden beide akzeptiert.
+                // Der Packer scannt das, was auf seinem Zettel steht, in
+                // beliebiger Reihenfolge. Die Familie-Logik (Sendungen erst
+                // \u00fcbermitteln wenn alle Spedition-Geschwister gelabelt sind)
+                // passiert ausschliesslich im Daily-Cron via
+                // ShippingListService::submitDailyShipments().
+
                 // 3. Gefahrstoff-Check
                 $hasHazmat = $this->hasTag($order, self::TAG_GEFAHRSTOFF);
                 if ($hasHazmat) {
@@ -194,6 +201,11 @@ class ShippingController extends Controller
                     $result['label_data']
                 );
 
+                // Resolve a real label URL that plentyBase can fetch + print.
+                // Tries multiple Storage API methods because the exact signature
+                // varies between Plenty Stable releases.
+                $labelUrl = $this->resolveLabelUrl('TranslandShipping', $storageKey, $storageObject);
+
                 // 9. SSCC als Paketnummer in Versandcenter-Pakete schreiben
                 $shipmentItems = [];
                 foreach ($plentyPackages as $idx => $plentyPkg) {
@@ -203,12 +215,12 @@ class ShippingController extends Controller
                         $plentyPkg->id,
                         [
                             'packageNumber' => $pkgSscc,
-                            'label'         => $storageObject->key ?? $storageKey,
+                            'label'         => $labelUrl,
                         ]
                     );
 
                     $shipmentItems[] = [
-                        'labelUrl'       => $storageObject->key ?? $storageKey,
+                        'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkgSscc,
                     ];
                 }
@@ -327,17 +339,10 @@ class ShippingController extends Controller
 
     private function hasSpeditionProfile($order): bool
     {
-        if (in_array((int)($order->shippingProfileId ?? 0), self::SPEDITION_PROFILE_IDS, true)) {
-            return true;
-        }
-        if (!empty($order->childOrders)) {
-            foreach ($order->childOrders as $child) {
-                if (in_array((int)($child->shippingProfileId ?? 0), self::SPEDITION_PROFILE_IDS, true)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        // Direkter Check. Die Familie-Logik (Sendungen erst uebermitteln wenn
+        // alle Spedition-Geschwister gelabelt sind) lebt im Daily-Cron, nicht
+        // hier. Am Packtisch gibt es keine Familie-Sicht.
+        return in_array((int)($order->shippingProfileId ?? 0), self::SPEDITION_PROFILE_IDS, true);
     }
 
     private function hasTag($order, string $tagName): bool
@@ -550,5 +555,109 @@ class ShippingController extends Controller
             'newPackagenumber' => $newPackage,
             'packages'         => $shipmentItems,
         ];
+    }
+
+    /**
+     * Resolves a real, fetchable URL for a stored label.
+     *
+     * plentyBase's RegisterShipment action takes the 'labelUrl' returned by a
+     * shipping plugin and fetches it via HTTP to send to the connected label
+     * printer. We MUST return an actual URL, not the storage key.
+     *
+     * The Plenty StorageRepositoryContract has changed signatures across
+     * Stable versions — different method names, different parameter orders,
+     * sometimes public URLs, sometimes signed temporary URLs. This helper
+     * tries them in order and logs each attempt so we can see in the plugin
+     * log which path succeeded on this specific Plenty version.
+     *
+     * Strategies, tried top to bottom:
+     *   1. getObjectUrl($plugin, $key, false, 60)  — verified Stable 7 signature,
+     *      publicVisible=false MUST match the uploadObject() call, 60 minutes
+     *      gives plentyBase plenty of time to fetch+print even on slow printers
+     *   2. $storageObject->url / ->publicUrl — safety net if a future Plenty
+     *      version adds a url property directly on the upload response
+     *   3. fallback: the storage key (printing will not work, but the process
+     *      continues and we get a log trail with the available methods)
+     */
+    private function resolveLabelUrl(string $plugin, string $storageKey, $storageObject): string
+    {
+        // Strategy 1: verified Plenty Stable 7 getObjectUrl signature.
+        // From official docs:
+        //   public getObjectUrl(
+        //       string $pluginName,
+        //       string $key,
+        //       bool $publicVisible = false,
+        //       int $minutesToExpire = 5
+        //   ): string
+        // The publicVisible flag MUST match what was passed to uploadObject().
+        // We upload without making the object public, so false here.
+        // Default expiry is 5 min which is too short for packing-desk workflows,
+        // so we explicitly pass 60 min.
+        try {
+            if (method_exists($this->storageRepository, 'getObjectUrl')) {
+                $url = $this->storageRepository->getObjectUrl($plugin, $storageKey, false, 60);
+                if (is_string($url) && $url !== '' && strpos($url, 'http') === 0) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlResolved', [
+                        'strategy' => 'getObjectUrl(plugin,key,false,60)',
+                        'url'      => $url,
+                    ]);
+                    return $url;
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlStrategy1Failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Strategy 2: inspect the object returned by uploadObject for a URL field
+        try {
+            $candidates = ['url', 'publicUrl', 'public_url', 'objectUrl'];
+            foreach ($candidates as $prop) {
+                $val = $storageObject->{$prop} ?? null;
+                if (is_string($val) && $val !== '' && strpos($val, 'http') === 0) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlResolved', [
+                        'strategy' => 'storageObject->' . $prop,
+                        'url'      => $val,
+                    ]);
+                    return $val;
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlStrategy2Failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Fallback: the storage key — not an URL, plentyBase will likely fail
+        // to print, but at least we keep the process alive and have a log trail.
+        $fallback = $storageObject->key ?? $storageKey;
+        $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlFallback', [
+            'note'       => 'No Storage API method returned a real URL. Printing will not work.',
+            'storageKey' => $fallback,
+            'available_methods' => $this->listStorageMethods(),
+        ]);
+        return $fallback;
+    }
+
+    /**
+     * Debug helper: lists all public methods on the storage repository so we
+     * can see in the log which Storage API shape this Plenty instance exposes.
+     */
+    private function listStorageMethods(): array
+    {
+        try {
+            $ref = new \ReflectionClass($this->storageRepository);
+            $methods = [];
+            foreach ($ref->getMethods(\ReflectionMethod::IS_PUBLIC) as $m) {
+                if (!$m->isConstructor() && !$m->isStatic()) {
+                    $methods[] = $m->getName();
+                }
+            }
+            sort($methods);
+            return $methods;
+        } catch (\Throwable $e) {
+            return ['reflection_error' => $e->getMessage()];
+        }
     }
 }

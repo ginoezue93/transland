@@ -130,24 +130,27 @@ class StorageService
 
     public function getPendingShipments(string $newerThan = ''): array
     {
+        // newerThan is kept for backward compatibility with callers that want
+        // to see a specific day (e.g. the admin REST endpoint). When empty we
+        // return ALL pending shipments regardless of age — this is important
+        // because the family logic in ShippingListService needs to see older
+        // pending shipments that are still waiting on their siblings.
+        $query = $this->db()->query(Shipment::class)
+            ->where('submitted', '=', 0)
+            ->where('labelPrinted', '=', 1);
+
         if (!empty($newerThan)) {
-            $from = $newerThan . ' 00:00:00';
-        } else {
-            $from = date('Y-m-d') . ' 00:00:00';
+            $query = $query->where('createdAt', '>=', $newerThan . ' 00:00:00');
         }
 
-        // Nur Shipments mit gedrucktem Label laden
-        $records = $this->db()->query(Shipment::class)
-            ->where('submitted', '=', 0)
-            ->where('labelPrinted', '=', 1)
-            ->where('createdAt', '>=', $from)
-            ->get();
+        $records = $query->get();
 
         if (empty($records)) {
             return [];
         }
 
-        // Pro orderId nur den neuesten Record behalten
+        // Pro orderId nur den neuesten Record behalten. Bei mehrfachem Labeln
+        // desselben Auftrags (z.B. Nachdruck) zaehlt nur der letzte Stand.
         $latestByOrder = [];
         foreach ($records as $record) {
             $orderId = $record->orderId;
@@ -159,43 +162,21 @@ class StorageService
             }
         }
 
-        // Bereitschaftscheck: nur Speditions-Lieferauftraege zaehlen
-        // DHL-Lieferauftraege (nicht in unserer DB) werden ignoriert
-        $ready = [];
-        foreach ($latestByOrder as $orderId => $record) {
-            $parentOrderId = (int)$record->parentOrderId;
-
-            if ($parentOrderId > 0) {
-                // Pruefen ob Speditions-Geschwister noch kein Label haben
-                $missingSiblings = $this->db()->query(Shipment::class)
-                    ->where('parentOrderId', '=', $parentOrderId)
-                    ->where('submitted', '=', 0)
-                    ->where('labelPrinted', '=', 0)
-                    ->get();
-
-                if (!empty($missingSiblings)) {
-                    $this->getLogger(__METHOD__)->error('TranslandShipping::storage.waitingForSiblings', [
-                        'orderId'        => $orderId,
-                        'parentOrderId'  => $parentOrderId,
-                        'stillMissing'   => count($missingSiblings),
-                        'note'           => 'DHL-Lieferauftraege werden ignoriert',
-                    ]);
-                    continue;
-                }
-            }
-
-            $ready[$orderId] = $record;
-        }
-
+        // NOTE: Die Familie-Vollstaendigkeitslogik wurde NICHT hier belassen.
+        // Frueher pruefte dieser Service "gibt es Geschwister in der Plugin-DB
+        // ohne Label?" – aber diese Pruefung kann nicht funktionieren, weil
+        // DHL-Geschwister und ungepackte Spedition-Geschwister beide nicht in
+        // der Plugin-DB liegen und damit nicht unterscheidbar sind. Die
+        // korrekte Familie-Pruefung braucht Zugriff auf Plenty's OrderRepository
+        // und lebt jetzt in ShippingListService::filterByCompleteFamilies().
         $this->getLogger(__METHOD__)->error('TranslandShipping::storage.pendingResult', [
-            'totalRecords' => count($latestByOrder),
-            'readyCount'   => count($ready),
-            'from'         => $from,
+            'pending_count' => count($latestByOrder),
+            'from'          => !empty($newerThan) ? ($newerThan . ' 00:00:00') : 'all',
         ]);
 
         return array_values(array_map(function (Shipment $record) {
             return $this->recordToShipmentArray($record);
-        }, $ready));
+        }, $latestByOrder));
     }
 
     public function markShipmentsAsSubmitted(array $orderIds, string $listId): void
@@ -273,6 +254,7 @@ class StorageService
         return [
             '_record_id'        => $record->id,
             'order_id'          => $record->orderId,
+            'parent_order_id'   => (int)($record->parentOrderId ?? 0),
             'pickup_date'       => $record->pickupDate,
             'shipper_address'   => $shipperAddress,
             'consignee_address' => $consigneeAddress,

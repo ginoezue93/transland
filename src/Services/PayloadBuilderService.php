@@ -56,7 +56,7 @@ class PayloadBuilderService
             'value_currency' => $this->getOrderCurrency($order),
             'weight_gr' => $this->calculateTotalWeightGram($packages),
             'options' => $options,
-            'packages' => $this->buildPackages($packages),
+            'packages' => $this->buildPackages($packages, $order),
             'texts' => $this->buildTexts($order),
         ];
     }
@@ -201,35 +201,90 @@ class PayloadBuilderService
     // Package builder
     // -------------------------------------------------------------------------
 
-    public function buildPackages(array $packages): array
+    /**
+     * Build the "positions" array for the Zufall label payload.
+     *
+     * Each plentymarkets shipping-center package becomes one position.
+     * Follows the Zufall v2 positions spec:
+     *   - quantity (pflicht, default 1)
+     *   - length/width/height/weight (pflicht)
+     *   - content (pflicht)
+     *   - packaging_type (pflicht, from package template)
+     *   - cubic_cm (calculated from dimensions)
+     *   - reference (optional but recommended: goes on the Zufall invoice)
+     *   - sub_packaging_count / sub_packaging_type (optional)
+     *   - packages (NVE/SSCC barcodes — filled after label creation)
+     *   - dangerous_goods (placeholder array, filled when hazmat spec is known)
+     */
+    public function buildPackages(array $packages, array $order = []): array
     {
-        return array_map(function (array $pkg) {
+        // The Zufall "reference" field is a customer reference that ends up
+        // on the transport invoice. Per project decision we always use the
+        // Plenty order id — this lets the customer reconcile Zufall invoices
+        // against Plenty orders without any lookup table.
+        $orderReference = '';
+        if (!empty($order['id'])) {
+            $orderReference = (string) $order['id'];
+        }
+
+        return array_map(function (array $pkg) use ($orderReference) {
             $lengthCm = (int) ($pkg['length_cm'] ?? 0);
             $widthCm = (int) ($pkg['width_cm'] ?? 0);
             $heightCm = (int) ($pkg['height_cm'] ?? 0);
 
             $built = [
-                'content' => substr($pkg['content'] ?? 'Waren', 0, 70),
+                'quantity' => (int) ($pkg['quantity'] ?? 1),
+                'content' => substr($pkg['content'] ?? 'Waren', 0, 35),
                 'packaging_type' => $this->mapPackagingType($pkg['packaging_type'] ?? 'FP'),
                 'length_cm' => $lengthCm,
                 'width_cm' => $widthCm,
                 'height_cm' => $heightCm,
                 'weight_gr' => (int) ($pkg['weight_gr'] ?? 0),
-                // cubic_cm = Volumen in cm³ (API erwartet dieses Feld)
                 'cubic_cm' => $lengthCm * $widthCm * $heightCm,
             ];
 
-            if (!empty($pkg['sscc'])) {
-                $built['sscc'] = $pkg['sscc'];
-            }
-            // package_reference aus pkg['reference'] oder pkg['package_reference']
-            $pkgRef = $pkg['package_reference'] ?? $pkg['reference'] ?? '';
+            // reference – Zufall spec: customer reference that appears on the
+            // transport invoice. We use the Plenty order id here.
+            // Override via pkg['reference'] is still possible if a caller
+            // explicitly wants something else.
+            $pkgRef = $pkg['reference'] ?? $pkg['package_reference'] ?? $orderReference;
             if (!empty($pkgRef)) {
-                $built['package_reference'] = substr((string) $pkgRef, 0, 35);
+                $built['reference'] = substr((string) $pkgRef, 0, 35);
             }
+
+            // sub_packaging – only set when actually provided
             if (!empty($pkg['sub_packaging_count'])) {
                 $built['sub_packaging_count'] = (int) $pkg['sub_packaging_count'];
                 $built['sub_packaging_type'] = $this->mapPackagingType($pkg['sub_packaging_type'] ?? 'KT');
+            }
+
+            // packages – array of NVE/SSCC barcodes belonging to this position.
+            // Per Zufall spec: "Packstücke je Position (Barcode/NVE)".
+            // At payload-build time we usually don't have the SSCC yet
+            // (Zufall assigns it), so this is normally an empty array.
+            // When a caller pre-fills pkg['sscc'] or pkg['barcodes'] we
+            // include them so round-trip scenarios (e.g. Bordero resubmit)
+            // still work.
+            $barcodes = [];
+            if (!empty($pkg['barcodes']) && is_array($pkg['barcodes'])) {
+                foreach ($pkg['barcodes'] as $bc) {
+                    if (!empty($bc)) {
+                        $barcodes[] = ['barcode' => (string) $bc];
+                    }
+                }
+            } elseif (!empty($pkg['sscc'])) {
+                $barcodes[] = ['barcode' => (string) $pkg['sscc']];
+            }
+            $built['packages'] = $barcodes;
+
+            // dangerous_goods – placeholder until Zufall hazmat spec is
+            // integrated. Empty array means "no hazmat".
+            // When the order has the Gefahrenstoff tag, ShippingController
+            // will populate this array before the payload is built.
+            if (isset($pkg['dangerous_goods']) && is_array($pkg['dangerous_goods'])) {
+                $built['dangerous_goods'] = $pkg['dangerous_goods'];
+            } else {
+                $built['dangerous_goods'] = [];
             }
 
             return $built;
