@@ -67,13 +67,58 @@ class TranslandApiService
 
         $data = $raw['data'];
 
-        // Extract SSCCs from returned packages
-        $ssccList = array_filter(array_column($data['packages'] ?? [], 'sscc'));
+        // Diagnostic dump of the label response so we can verify which format
+        // Zufall's endpoint actually uses (v1.x = "packages", v2.0 = "positions")
+        // and whether label_data is really empty or gets lost in our parsing.
+        $labelData = is_array($data) ? ($data['label_data'] ?? '') : '';
+        $this->getLogger(__CLASS__)->error('TranslandShipping::api.labelResponseDump', [
+            'top_level_keys'   => is_array($data) ? array_keys($data) : 'NOT_ARRAY',
+            'has_positions'    => isset($data['positions']) ? 'yes' : 'no',
+            'has_packages'     => isset($data['packages']) ? 'yes' : 'no',
+            'positions_count'  => isset($data['positions']) && is_array($data['positions']) ? count($data['positions']) : 0,
+            'packages_count'   => isset($data['packages']) && is_array($data['packages']) ? count($data['packages']) : 0,
+            'label_data_len'   => is_string($labelData) ? strlen($labelData) : 0,
+            'label_data_start' => is_string($labelData) && strlen($labelData) > 0 ? substr($labelData, 0, 40) : '<empty>',
+            'raw_body_snippet' => is_array($data) ? substr(json_encode($data), 0, 1500) : '<not-an-array>',
+        ]);
+
+        // Extract positions/packages – try v2.0 spec first (positions), fall
+        // back to v1.x (packages). Both are supported because Zufall's
+        // endpoints may transition over time.
+        $positionsArray = [];
+        if (isset($data['positions']) && is_array($data['positions'])) {
+            $positionsArray = $data['positions'];
+        } elseif (isset($data['packages']) && is_array($data['packages'])) {
+            $positionsArray = $data['packages'];
+        }
+
+        // Extract SSCCs from the position array. In v2.0, each position has
+        // a nested "packages" array with sscc entries. In v1.x, the position
+        // itself has a top-level sscc field.
+        $ssccList = [];
+        foreach ($positionsArray as $pos) {
+            if (!is_array($pos)) {
+                continue;
+            }
+            // v2.0: position.packages[].sscc
+            if (isset($pos['packages']) && is_array($pos['packages'])) {
+                foreach ($pos['packages'] as $pkg) {
+                    if (is_array($pkg) && !empty($pkg['sscc'])) {
+                        $ssccList[] = (string) $pkg['sscc'];
+                    }
+                }
+            }
+            // v1.x: position.sscc (flat)
+            if (!empty($pos['sscc'])) {
+                $ssccList[] = (string) $pos['sscc'];
+            }
+        }
+        $ssccList = array_values(array_unique($ssccList));
 
         return [
-            'packages'   => $data['packages']   ?? [],
-            'label_data' => $data['label_data']  ?? '',
-            'sscc_list'  => array_values($ssccList),
+            'packages'   => $positionsArray,
+            'label_data' => $labelData,
+            'sscc_list'  => $ssccList,
         ];
     }
 
