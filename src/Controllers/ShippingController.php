@@ -13,6 +13,7 @@ use Plenty\Plugin\Controller;
 use Plenty\Plugin\Http\Request;
 use Plenty\Plugin\Log\Loggable;
 use TranslandShipping\Services\LabelService;
+use TranslandShipping\Services\PayloadBuilderService;
 use TranslandShipping\Services\ShippingListService;
 use TranslandShipping\Services\SettingsService;
 use TranslandShipping\Services\StorageService;
@@ -61,6 +62,7 @@ class ShippingController extends Controller
     private StorageRepositoryContract             $storageRepository;
     private ShippingPackageTypeRepositoryContract  $packageTypeRepository;
     private LabelService                          $labelService;
+    private PayloadBuilderService                 $payloadBuilder;
     private ShippingListService                   $shippingListService;
     private SettingsService                       $settingsService;
     private StorageService                        $storageService;
@@ -73,6 +75,7 @@ class ShippingController extends Controller
         StorageRepositoryContract              $storageRepository,
         ShippingPackageTypeRepositoryContract  $packageTypeRepository,
         LabelService                           $labelService,
+        PayloadBuilderService                 $payloadBuilder,
         ShippingListService                    $shippingListService,
         SettingsService                        $settingsService,
         StorageService                         $storageService
@@ -84,6 +87,7 @@ class ShippingController extends Controller
         $this->storageRepository    = $storageRepository;
         $this->packageTypeRepository = $packageTypeRepository;
         $this->labelService         = $labelService;
+        $this->payloadBuilder       = $payloadBuilder;
         $this->shippingListService  = $shippingListService;
         $this->settingsService      = $settingsService;
         $this->storageService       = $storageService;
@@ -117,6 +121,7 @@ class ShippingController extends Controller
                     'amounts',
                     'tags',
                     'properties',
+                    'comments',
                 ]);
 
                 if (!$order || !$order->id) {
@@ -172,16 +177,87 @@ class ShippingController extends Controller
 
                 // 4. Pakete aus Versandcenter laden
                 $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+                $packagesFromNote = false;
 
                 if (empty($plentyPackages)) {
-                    $this->createOrderResult[$orderId] = $this->buildResultArray(
-                        false, 'Keine Pakete im Versandcenter', false, []
-                    );
-                    continue;
+                    // Keine Pakete vorhanden — versuche aus Packer-Notiz zu erstellen.
+                    // Der plentyBase-Prozess zeigt vor RegisterShipment einen
+                    // UserDialog + AddOrderInformation. Der Packer tippt dort
+                    // z.B. "FP;120;80;100;250" ein, und das wird als Auftragsnotiz
+                    // gespeichert. Wir parsen diese Notiz und erstellen daraus
+                    // ein Plenty-Versandpaket + Zufall-Payload.
+                    $parsed = $this->tryParsePackageNote($order);
+
+                    if ($parsed === null) {
+                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.noPackages', [
+                            'orderId' => $orderId,
+                            'note'    => 'Keine Pakete und keine parsbare Notiz gefunden. Bitte zuerst Verpackungsdaten eingeben.',
+                        ]);
+                        $this->createOrderResult[$orderId] = $this->buildResultArray(
+                            false,
+                            'Keine Pakete im Versandcenter und keine Verpackungsnotiz gefunden. Bitte Prozess mit Verpackungsdaten-Eingabe verwenden.',
+                            false,
+                            []
+                        );
+                        continue;
+                    }
+
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.autoCreateFromNote', [
+                        'orderId' => $orderId,
+                        'parsed'  => $parsed,
+                    ]);
+
+                    // Plenty-Paket erstellen (minimal: weight + packageId)
+                    // Das Paket wird gebraucht damit SSCC und Label-URL nach
+                    // dem API-Call zurückgeschrieben werden können.
+                    try {
+                        $this->orderShippingPackage->createOrderShippingPackage($orderId, [
+                            'packageId' => $parsed['packageId'],
+                            'weight'    => $parsed['weight_gr'],
+                        ]);
+                    } catch (\Exception $e) {
+                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.autoCreateFailed', [
+                            'orderId' => $orderId,
+                            'error'   => $e->getMessage(),
+                        ]);
+                        $this->createOrderResult[$orderId] = $this->buildResultArray(
+                            false,
+                            'Paket konnte nicht erstellt werden: ' . $e->getMessage(),
+                            false,
+                            []
+                        );
+                        continue;
+                    }
+
+                    // Plenty-Pakete neu laden (jetzt sollte eins da sein)
+                    $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+                    if (empty($plentyPackages)) {
+                        $this->createOrderResult[$orderId] = $this->buildResultArray(
+                            false, 'Paket wurde erstellt aber konnte nicht geladen werden.', false, []
+                        );
+                        continue;
+                    }
+
+                    $packagesFromNote = true;
                 }
 
-                // 5. Pakete aufbereiten mit Paketvorlage aus Versandcenter
-                $packages = $this->buildPackagesFromVersandcenter($plentyPackages, $hasHazmat);
+                // 5. Pakete aufbereiten
+                if ($packagesFromNote) {
+                    // Aus der geparsten Packer-Notiz — Dimensionen kommen direkt
+                    // aus der Eingabe, nicht aus dem Plenty-Paketobjekt (das hätte 0).
+                    $packages = [[
+                        'content'           => 'Waren',
+                        'packaging_type'    => $parsed['packaging_type'],
+                        'length_cm'         => $parsed['length_cm'],
+                        'width_cm'          => $parsed['width_cm'],
+                        'height_cm'         => $parsed['height_cm'],
+                        'weight_gr'         => $parsed['weight_gr'],
+                        '_package_type_raw' => $parsed['packaging_type'],
+                    ]];
+                } else {
+                    // Normale Route: Paketvorlage aus Versandcenter
+                    $packages = $this->buildPackagesFromVersandcenter($plentyPackages, $hasHazmat);
+                }
 
                 // 5a. Gefahrgut-Block aus Plugin-Config an JEDE Position anhängen
                 //     wenn der Auftrag als Gefahrenstoff markiert ist.
@@ -417,6 +493,139 @@ class ShippingController extends Controller
             }
         }
         return $names;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Auto-create package from packer note
+    //
+    // The plentyBase process shows a UserDialog before RegisterShipment where
+    // the packer types packaging data in the format:
+    //
+    //   TYP;LAENGE;BREITE;HOEHE;GEWICHT_KG
+    //   e.g. "FP;120;80;100;250"
+    //
+    // This is saved as an order note/comment via AddOrderInformation.
+    // The method below reads the latest matching note and parses it.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Valid Zufall packaging type codes (spec page 13).
+     */
+    private const VALID_PACKAGING_TYPES = [
+        'BL', 'BU', 'CH', 'CP', 'CV', 'DP', 'EI', 'EP', 'FA', 'FP',
+        'GP', 'HP', 'KB', 'KI', 'KP', 'KT', 'PA', 'PK', 'SA', 'ST', 'VP',
+    ];
+
+    /**
+     * Try to find and parse a packaging note from the order's comments.
+     * Expected format: "TYP;LAENGE;BREITE;HOEHE;GEWICHT_KG"
+     *
+     * Returns parsed array or null if no matching note found.
+     */
+    private function tryParsePackageNote($order): ?array
+    {
+        // Try multiple locations where AddOrderInformation might store data.
+        // Plenty's internal model is not consistently documented, so we try
+        // comments first, then fall back to properties (customerSign).
+        $candidates = [];
+
+        // Source 1: order comments (most likely target of AddOrderInformation)
+        if (!empty($order->comments)) {
+            foreach ($order->comments as $comment) {
+                $text = '';
+                if (is_string($comment)) {
+                    $text = $comment;
+                } elseif (is_object($comment)) {
+                    $text = $comment->text ?? ($comment->comment ?? ($comment->value ?? ''));
+                } elseif (is_array($comment)) {
+                    $text = $comment['text'] ?? ($comment['comment'] ?? ($comment['value'] ?? ''));
+                }
+                $text = trim((string) $text);
+                if ($text !== '') {
+                    $candidates[] = $text;
+                }
+            }
+        }
+
+        // Source 2: order properties — CUSTOMER_SIGN (typeId 8)
+        if (!empty($order->properties)) {
+            foreach ($order->properties as $prop) {
+                $typeId = (int)($prop->typeId ?? 0);
+                if ($typeId === 8) {
+                    $val = trim((string)($prop->value ?? ''));
+                    if ($val !== '') {
+                        $candidates[] = $val;
+                    }
+                }
+            }
+        }
+
+        $this->getLogger(__CLASS__)->error('TranslandShipping::register.noteSearch', [
+            'candidateCount' => count($candidates),
+            'candidates'     => array_map(function ($c) {
+                return substr($c, 0, 80);
+            }, $candidates),
+        ]);
+
+        // Try to parse each candidate (newest first = end of array)
+        $reversed = array_reverse($candidates);
+        foreach ($reversed as $text) {
+            $parsed = $this->parsePackageString($text);
+            if ($parsed !== null) {
+                return $parsed;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse a single package string.
+     * Format: "TYP;LAENGE;BREITE;HOEHE;GEWICHT_KG"
+     * e.g.  : "FP;120;80;100;250"
+     *
+     * Returns parsed data array or null.
+     */
+    private function parsePackageString(string $input): ?array
+    {
+        $input = trim($input);
+
+        // Accept both ; and , as delimiter
+        $parts = preg_split('/[;,]/', $input);
+        if ($parts === false || count($parts) < 5) {
+            return null;
+        }
+
+        $type     = strtoupper(trim($parts[0]));
+        $lengthCm = (int) trim($parts[1]);
+        $widthCm  = (int) trim($parts[2]);
+        $heightCm = (int) trim($parts[3]);
+        $weightKg = (float) str_replace(',', '.', trim($parts[4]));
+
+        // Validate packaging type
+        if (!in_array($type, self::VALID_PACKAGING_TYPES, true)) {
+            return null;
+        }
+
+        // Sanity: at least some dimension should be > 0
+        if ($lengthCm <= 0 && $widthCm <= 0 && $heightCm <= 0 && $weightKg <= 0) {
+            return null;
+        }
+
+        $weightGr = (int) round($weightKg * 1000);
+
+        return [
+            'packaging_type' => $type,
+            'length_cm'      => $lengthCm,
+            'width_cm'       => $widthCm,
+            'height_cm'      => $heightCm,
+            'weight_gr'      => $weightGr,
+            'weight_kg'      => $weightKg,
+            // packageId for createOrderShippingPackage — use 1 as default.
+            // If venturama's Plenty has a different default package type ID,
+            // this can be changed in a future version or made configurable.
+            'packageId'      => 1,
+        ];
     }
 
     private function buildPackagesFromVersandcenter(array $plentyPackages, bool $hasHazmat): array
