@@ -321,17 +321,34 @@ class ShippingController extends Controller
                 // varies between Plenty Stable releases.
                 $labelUrl = $this->resolveLabelUrl('TranslandShipping', $storageKey, $storageObject);
 
-                // 9. SSCC als Paketnummer in Versandcenter-Pakete schreiben
+                // 9. SSCC als Paketnummer + Label in Versandcenter-Pakete schreiben
+                //
+                // Wichtig: Die Feldnamen müssen exakt dem OrderShippingPackage-
+                // Model entsprechen (Stable7 Doku):
+                //   packageNumber  = SSCC/Paketnummer
+                //   labelPath      = URL zum Label (für plentyBase-Druck)
+                //   labelBase64    = base64-kodiertes Label (für Versandcenter-Anzeige)
+                //
+                // labelBase64 ist das was DHL auch setzt — damit erscheint der
+                // "Label drucken"-Button im Versandcenter.
                 $shipmentItems = [];
                 foreach ($plentyPackages as $idx => $plentyPkg) {
                     $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
 
+                    $updateData = [
+                        'packageNumber' => $pkgSscc,
+                        'labelPath'     => $labelUrl,
+                    ];
+
+                    // labelBase64: das ZPL/PDF base64 direkt aus der Zufall-Response
+                    // Zufall liefert label_data bereits als base64-String.
+                    if (!empty($result['label_data'])) {
+                        $updateData['labelBase64'] = $result['label_data'];
+                    }
+
                     $this->orderShippingPackage->updateOrderShippingPackage(
                         $plentyPkg->id,
-                        [
-                            'packageNumber' => $pkgSscc,
-                            'label'         => $labelUrl,
-                        ]
+                        $updateData
                     );
 
                     $shipmentItems[] = [
@@ -469,7 +486,13 @@ class ShippingController extends Controller
             $orderId = (int) $orderId;
 
             try {
-                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+                // 'labelBase64' muss explizit via $with geladen werden,
+                // sonst liefert Plenty nur die Metadaten ohne Label-Inhalt.
+                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages(
+                    $orderId,
+                    [],
+                    ['labelBase64']
+                );
                 $shipmentItems = [];
 
                 foreach ($plentyPackages as $pkg) {
@@ -491,14 +514,21 @@ class ShippingController extends Controller
                                 60
                             );
                         } catch (\Exception $e) {
-                            // Storage-URL konnte nicht aufgelöst werden — ignorieren
+                            // Storage-URL konnte nicht aufgelöst werden
                         }
                     }
 
-                    $shipmentItems[] = [
+                    $item = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkg->packageNumber ?? '',
                     ];
+
+                    // labelBase64 für Versandcenter-Druck mitsenden wenn vorhanden
+                    if (!empty($pkg->labelBase64)) {
+                        $item['labelBase64'] = $pkg->labelBase64;
+                    }
+
+                    $shipmentItems[] = $item;
                 }
 
                 $this->createOrderResult[$orderId] = $this->buildResultArray(
