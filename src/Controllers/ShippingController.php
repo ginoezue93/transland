@@ -449,6 +449,83 @@ class ShippingController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // getLabels – wird von PlentyONE/plentyBase Printing-Sub-Aktion aufgerufen
+    //
+    // Nach RegisterShipment ruft plentyBase die Printing-Sub-Aktion auf.
+    // Diese holt die Label-URLs über den dritten registrierten Callback
+    // (index [2] in registerShippingProvider). Ohne diese Methode kommt
+    // "Value of type null is not callable".
+    //
+    // Die Label-URL ist bereits auf dem OrderShippingPackage gespeichert
+    // (von registerShipments via updateOrderShippingPackage mit 'label').
+    // Wir lesen sie hier einfach aus.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function getLabels(Request $request, $orderIds): array
+    {
+        $orderIds = $this->getOrderIds($request, $orderIds);
+
+        foreach ($orderIds as $orderId) {
+            $orderId = (int) $orderId;
+
+            try {
+                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+                $shipmentItems = [];
+
+                foreach ($plentyPackages as $pkg) {
+                    $labelUrl = '';
+
+                    // labelPath ist das Feld das Plenty für die Label-URL nutzt
+                    if (!empty($pkg->labelPath)) {
+                        $labelUrl = (string) $pkg->labelPath;
+                    }
+
+                    // Fallback: Label-URL aus packageNumber + Storage resolven
+                    if (empty($labelUrl) && !empty($pkg->packageNumber)) {
+                        $storageKey = $pkg->packageNumber . '.zpl';
+                        try {
+                            $labelUrl = $this->storageRepository->getObjectUrl(
+                                'TranslandShipping',
+                                $storageKey,
+                                false,
+                                60
+                            );
+                        } catch (\Exception $e) {
+                            // Storage-URL konnte nicht aufgelöst werden — ignorieren
+                        }
+                    }
+
+                    $shipmentItems[] = [
+                        'labelUrl'       => $labelUrl,
+                        'shipmentNumber' => $pkg->packageNumber ?? '',
+                    ];
+                }
+
+                $this->createOrderResult[$orderId] = $this->buildResultArray(
+                    true,
+                    '',
+                    false,
+                    $shipmentItems
+                );
+            } catch (\Exception $e) {
+                $this->getLogger(__CLASS__)->error('TranslandShipping::getLabels.error', [
+                    'orderId' => $orderId,
+                    'message' => $e->getMessage(),
+                ]);
+
+                $this->createOrderResult[$orderId] = $this->buildResultArray(
+                    false,
+                    $e->getMessage(),
+                    false,
+                    []
+                );
+            }
+        }
+
+        return $this->createOrderResult;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Hilfsmethoden
     // ─────────────────────────────────────────────────────────────────────────
 

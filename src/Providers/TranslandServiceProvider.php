@@ -70,6 +70,7 @@ class TranslandServiceProvider extends ServiceProvider
         // Die Reihenfolge ist festgelegt:
         //   [0] => registerShipments  (RegisterShipment Prozessaktion)
         //   [1] => deleteShipments    (Stornierung)
+        //   [2] => getLabels          (Label-Abruf für Printing-Sub-Aktion)
         $shippingServiceProviderService->registerShippingProvider(
             'TranslandShipping',
             [
@@ -79,6 +80,7 @@ class TranslandServiceProvider extends ServiceProvider
             [
                 'TranslandShipping\\Controllers\\ShippingController@registerShipments',
                 'TranslandShipping\\Controllers\\ShippingController@deleteShipments',
+                'TranslandShipping\\Controllers\\ShippingController@getLabels',
             ]
         );
 
