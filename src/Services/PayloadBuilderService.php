@@ -39,6 +39,124 @@ class PayloadBuilderService
     }
 
     // -------------------------------------------------------------------------
+    // NextDay Tag → Zufall option code mapping
+    //
+    // venturama marks orders as "NextDay" by tagging them. The 4 tags below
+    // map to Zufall Premium Service option codes (spec page 11).
+    //
+    // Only ONE of these tags should be set per order. If multiple are set,
+    // the most specific one (lowest number = earliest delivery time) wins.
+    // -------------------------------------------------------------------------
+    private const NEXTDAY_TAG_CODES = [
+        // Tag name        => Zufall option code
+        'NextDay8'  => 253,  // PS NextDay/8  (bis 8:00)
+        'NextDay10' => 255,  // PS NextDay/10 (bis 10:00)
+        'NextDay12' => 257,  // PS NextDay/12 (bis 12:00)
+        'NextDay'   => 250,  // PS NextDay (Standard)
+    ];
+
+    /**
+     * Build the "options" array for a Zufall shipment based on the tags
+     * present on the order. Currently handles NextDay tags only.
+     *
+     * @param array $tagNames Flat list of tag name strings attached to the order.
+     * @return array Array of {code, text?} objects ready for the Zufall payload.
+     */
+    public function buildShipmentOptions(array $tagNames): array
+    {
+        $options = [];
+
+        // Normalize tag names to lowercase for case-insensitive matching
+        $lowerTags = array_map('strtolower', $tagNames);
+
+        // NextDay: use the most specific tag that is set. Order matters –
+        // NextDay8 (most specific) is checked first. Since venturama is
+        // supposed to set only ONE NextDay tag per order, hitting the first
+        // match and returning is the safest behaviour.
+        foreach (self::NEXTDAY_TAG_CODES as $tagName => $code) {
+            if (in_array(strtolower($tagName), $lowerTags, true)) {
+                $options[] = ['code' => $code];
+                break;
+            }
+        }
+
+        return $options;
+    }
+
+    // -------------------------------------------------------------------------
+    // Hazmat / dangerous_goods from plugin config
+    //
+    // venturama has exactly one kind of hazmat product. When an order is
+    // tagged "Gefahrenstoff", the plugin config "Gefahrgut" tab provides
+    // all the fields needed for the Zufall dangerous_goods block (spec
+    // page 14).
+    //
+    // This method reads those config values and builds a single
+    // dangerous_goods entry. That entry is then attached to every package
+    // position on the shipment.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a single dangerous_goods entry from the plugin config's
+     * "Gefahrgut" tab. Returns an empty array if the mandatory UN number
+     * is not configured (safer than sending a broken block to Zufall).
+     *
+     * @return array Single dangerous_goods entry or empty array.
+     */
+    public function buildDangerousGoodsFromConfig(): array
+    {
+        $settings = $this->settingsService->getSettings();
+
+        // Mandatory check: un_number must be set. If the customer has not
+        // filled in the config yet, we refuse to build a broken hazmat block
+        // (would cause HTTP 500 at Zufall).
+        $unNumber = trim((string) ($settings['hazmat_un_number'] ?? ''));
+        if ($unNumber === '') {
+            return [];
+        }
+
+        $entry = [
+            'release'                 => (string) ($settings['hazmat_release'] ?? '2025'),
+            'package_quantity'        => (int) ($settings['hazmat_package_quantity'] ?? 1),
+            'weight'                  => (int) ($settings['hazmat_weight_gr'] ?? 0),
+            'un_number'               => $unNumber,
+            'packaging_description'   => substr((string) ($settings['hazmat_packaging_description'] ?? ''), 0, 35),
+            'multiplicator'           => (int) ($settings['hazmat_multiplicator'] ?? 1),
+            'name'                    => substr((string) ($settings['hazmat_name'] ?? ''), 0, 210),
+            'main_danger'             => (string) ($settings['hazmat_main_danger'] ?? ''),
+            'tunnel_restriction_code' => (string) ($settings['hazmat_tunnel_restriction_code'] ?? 'E'),
+        ];
+
+        // Optional fields – only include when non-empty so we don't clutter
+        // the payload with empty strings Zufall might reject.
+        $optionalStringFields = [
+            'packaging_group'       => 'hazmat_packaging_group',
+            'packaging_group_class' => 'hazmat_packaging_group_class',
+            'classification_code'   => 'hazmat_classification_code',
+        ];
+        foreach ($optionalStringFields as $payloadKey => $configKey) {
+            $val = trim((string) ($settings[$configKey] ?? ''));
+            if ($val !== '') {
+                $entry[$payloadKey] = $val;
+            }
+        }
+
+        // Boolean flags from dropdowns (config stores as "0"/"1" strings)
+        $optionalBoolFields = [
+            'is_lq'                          => 'hazmat_is_lq',
+            'is_exempt'                      => 'hazmat_is_exempt',
+            'is_hazardous_to_the_environment' => 'hazmat_is_hazardous_to_the_environment',
+        ];
+        foreach ($optionalBoolFields as $payloadKey => $configKey) {
+            if (($settings[$configKey] ?? '0') === '1') {
+                $entry[$payloadKey] = true;
+            }
+        }
+
+        return $entry;
+    }
+
+    // -------------------------------------------------------------------------
     // Label payload
     // -------------------------------------------------------------------------
 

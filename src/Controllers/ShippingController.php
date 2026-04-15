@@ -153,7 +153,20 @@ class ShippingController extends Controller
                 if ($hasHazmat) {
                     $this->getLogger(__CLASS__)->error('TranslandShipping::register.hazmat_detected', [
                         'orderId' => $orderId,
-                        'note'    => 'Gefahrenstoff-Tag erkannt. dangerous_goods als Platzhalter bis Zufall API v2 Felder bekannt.',
+                        'note'    => 'Gefahrenstoff-Tag erkannt. dangerous_goods wird aus Plugin-Config "Gefahrgut" gebaut.',
+                    ]);
+                }
+
+                // 3a. NextDay-Tag-Erkennung → Zufall Premium-Service Options
+                //     Die 4 Tags (NextDay, NextDay8, NextDay10, NextDay12)
+                //     werden in buildShipmentOptions() auf die Option-Codes
+                //     250/253/255/257 gemappt. Nur der spezifischste Tag zieht.
+                $orderTagNames = $this->collectOrderTagNames($order);
+                $shipmentOptions = $this->payloadBuilder->buildShipmentOptions($orderTagNames);
+                if (!empty($shipmentOptions)) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.nextday_detected', [
+                        'orderId' => $orderId,
+                        'options' => $shipmentOptions,
                     ]);
                 }
 
@@ -170,6 +183,31 @@ class ShippingController extends Controller
                 // 5. Pakete aufbereiten mit Paketvorlage aus Versandcenter
                 $packages = $this->buildPackagesFromVersandcenter($plentyPackages, $hasHazmat);
 
+                // 5a. Gefahrgut-Block aus Plugin-Config an JEDE Position anhängen
+                //     wenn der Auftrag als Gefahrenstoff markiert ist.
+                //     buildDangerousGoodsFromConfig() gibt ein leeres Array
+                //     zurück wenn un_number nicht konfiguriert ist – in dem
+                //     Fall wird nichts angehängt (Schutz vor HTTP 500).
+                if ($hasHazmat) {
+                    $hazmatEntry = $this->payloadBuilder->buildDangerousGoodsFromConfig();
+                    if (!empty($hazmatEntry)) {
+                        foreach ($packages as &$pkg) {
+                            $pkg['dangerous_goods'] = [$hazmatEntry];
+                        }
+                        unset($pkg);
+                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.hazmat_applied', [
+                            'orderId'   => $orderId,
+                            'un_number' => $hazmatEntry['un_number'] ?? '',
+                            'name'      => $hazmatEntry['name'] ?? '',
+                        ]);
+                    } else {
+                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.hazmat_config_empty', [
+                            'orderId' => $orderId,
+                            'note'    => 'Gefahrenstoff-Tag gesetzt aber Plugin-Config "Gefahrgut" hat keine UN-Nummer. Label wird OHNE dangerous_goods-Block erstellt.',
+                        ]);
+                    }
+                }
+
                 $this->getLogger(__CLASS__)->error('TranslandShipping::register.packagesLoaded', [
                     'orderId'      => $orderId,
                     'packageCount' => count($packages),
@@ -182,7 +220,8 @@ class ShippingController extends Controller
                 $parentOrderId = (int)($order->parentOrderId ?? 0);
 
                 // 7. ZPL Label erstellen via Transland API
-                $result = $this->labelService->createLabelForOrder($orderArray, $packages, 'ZPL', []);
+                //    $shipmentOptions enthält NextDay-Codes wenn entsprechender Tag gesetzt.
+                $result = $this->labelService->createLabelForOrder($orderArray, $packages, 'ZPL', $shipmentOptions);
 
                 if (empty($result['label_data'])) {
                     $this->createOrderResult[$orderId] = $this->buildResultArray(
@@ -357,6 +396,27 @@ class ShippingController extends Controller
             }
         }
         return false;
+    }
+
+    /**
+     * Return all tag names attached to an order as a flat string array.
+     * Uses the same lookup pattern as hasTag() to handle the different
+     * shapes Plenty's Tag model can take (tagName vs names[].name vs name).
+     */
+    private function collectOrderTagNames($order): array
+    {
+        $names = [];
+        if (empty($order->tags)) {
+            return $names;
+        }
+        foreach ($order->tags as $tag) {
+            $name = $tag->tagName ?? ($tag->names[0]['name'] ?? ($tag->name ?? ''));
+            $name = trim((string) $name);
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+        return $names;
     }
 
     private function buildPackagesFromVersandcenter(array $plentyPackages, bool $hasHazmat): array

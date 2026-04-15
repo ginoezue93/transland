@@ -214,5 +214,122 @@
       "GP": "GP – Gitterboxpalette",
       "ST": "ST – Stück"
     }
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_release",
+    "label": "Release (ADR-Jahrgang, z.B. 2025)",
+    "type": "text",
+    "default": "2025"
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_un_number",
+    "label": "UN-Nummer (z.B. 1805)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_name",
+    "label": "GG-Bezeichnung (offizieller Name, max. 210 Zeichen)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_main_danger",
+    "label": "Hauptgefahr-Klasse (z.B. 8, 3, 9)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_tunnel_restriction_code",
+    "label": "Tunnelbeschränkungscode (z.B. E, D, C)",
+    "type": "text",
+    "default": "E"
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_packaging_description",
+    "label": "Verpackungsbeschreibung (z.B. Kanister, Karton, Fass)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_package_quantity",
+    "label": "Anzahl GG-Packstücke je Position (Integer)",
+    "type": "text",
+    "default": "1"
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_weight_gr",
+    "label": "Brutto-Gewicht je Position in Gramm (Integer)",
+    "type": "text",
+    "default": "0"
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_multiplicator",
+    "label": "Multiplikator (Integer, meist 1)",
+    "type": "text",
+    "default": "1"
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_packaging_group",
+    "label": "Verpackungsgruppe (I, II, III oder leer)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_packaging_group_class",
+    "label": "Verpackungsgruppe / Klassifizierungscode (z.B. III)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_classification_code",
+    "label": "Klassifizierungscode (z.B. C1)",
+    "type": "text",
+    "default": ""
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_is_lq",
+    "label": "Begrenzte Menge (LQ)",
+    "type": "dropdown",
+    "default": "0",
+    "possibleValues": {
+      "0": "Nein",
+      "1": "Ja"
+    }
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_is_exempt",
+    "label": "Freigestellte Menge",
+    "type": "dropdown",
+    "default": "0",
+    "possibleValues": {
+      "0": "Nein",
+      "1": "Ja"
+    }
+  },
+  {
+    "tab": "Gefahrgut",
+    "key": "hazmat_is_hazardous_to_the_environment",
+    "label": "Umweltgefährdend",
+    "type": "dropdown",
+    "default": "0",
+    "possibleValues": {
+      "0": "Nein",
+      "1": "Ja"
+    }
   }
 ]

@@ -50,6 +50,26 @@ class SettingsService
             'packaging_type_process_79'       => $this->config->get('TranslandShipping.packaging_type_process_79', 'KT'),
             'packaging_type_process_85'       => $this->config->get('TranslandShipping.packaging_type_process_85', 'FP'),
             'packaging_type_process_87'       => $this->config->get('TranslandShipping.packaging_type_process_87', 'KT'),
+
+            // Gefahrgut / dangerous_goods profile (venturama single-hazmat model)
+            // Consumed by PayloadBuilderService::buildDangerousGoodsFromConfig()
+            // only when an order has the Gefahrenstoff tag. If hazmat_un_number
+            // is empty, the whole dangerous_goods block is skipped.
+            'hazmat_release'                         => $this->config->get('TranslandShipping.hazmat_release', '2025'),
+            'hazmat_un_number'                       => $this->config->get('TranslandShipping.hazmat_un_number', ''),
+            'hazmat_name'                            => $this->config->get('TranslandShipping.hazmat_name', ''),
+            'hazmat_main_danger'                     => $this->config->get('TranslandShipping.hazmat_main_danger', ''),
+            'hazmat_tunnel_restriction_code'         => $this->config->get('TranslandShipping.hazmat_tunnel_restriction_code', 'E'),
+            'hazmat_packaging_description'           => $this->config->get('TranslandShipping.hazmat_packaging_description', ''),
+            'hazmat_package_quantity'                => $this->config->get('TranslandShipping.hazmat_package_quantity', '1'),
+            'hazmat_weight_gr'                       => $this->config->get('TranslandShipping.hazmat_weight_gr', '0'),
+            'hazmat_multiplicator'                   => $this->config->get('TranslandShipping.hazmat_multiplicator', '1'),
+            'hazmat_packaging_group'                 => $this->config->get('TranslandShipping.hazmat_packaging_group', ''),
+            'hazmat_packaging_group_class'           => $this->config->get('TranslandShipping.hazmat_packaging_group_class', ''),
+            'hazmat_classification_code'             => $this->config->get('TranslandShipping.hazmat_classification_code', ''),
+            'hazmat_is_lq'                           => $this->config->get('TranslandShipping.hazmat_is_lq', '0'),
+            'hazmat_is_exempt'                       => $this->config->get('TranslandShipping.hazmat_is_exempt', '0'),
+            'hazmat_is_hazardous_to_the_environment' => $this->config->get('TranslandShipping.hazmat_is_hazardous_to_the_environment', '0'),
         ];
     }
 
