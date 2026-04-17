@@ -307,13 +307,17 @@ class ShippingController extends Controller
                 }
 
                 // 8. ZPL in PlentyONE S3 Storage speichern
-                //    PlentyONE liest die URL und schickt sie via plentyBase an den Zebra-Drucker
+                //    plentyBase fetched die URL und sendet den Inhalt direkt an
+                //    den Zebra-Drucker. Deshalb muss im Storage das ROHE ZPL
+                //    liegen (^XA...^XZ), nicht der Base64-String.
+                //    Zufall liefert label_data als Base64 → erst dekodieren.
                 $sscc        = $result['sscc_list'][0] ?? ('transland-' . $orderId);
                 $storageKey  = $sscc . '.zpl';
+                $rawZpl      = base64_decode($result['label_data']);
                 $storageObject = $this->storageRepository->uploadObject(
                     'TranslandShipping',
                     $storageKey,
-                    $result['label_data']
+                    $rawZpl
                 );
 
                 // Resolve a real label URL that plentyBase can fetch + print.
