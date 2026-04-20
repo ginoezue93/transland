@@ -900,6 +900,19 @@ class ShippingController extends Controller
             $info = $this->shippingInformation->getShippingInformationByOrderId((int)$orderId);
             if ($info->shippingStatus === null || $info->shippingStatus === 'open') {
                 $open[] = $orderId;
+            } else {
+                // Auftrag war schon registriert. Automatisch zurücksetzen damit
+                // der Packer den Auftrag erneut scannen kann (z.B. nach einem
+                // Fehler oder Testlauf). Im Produktivbetrieb kommt dieser Fall
+                // selten vor weil der Prozess nach GoodsIssue den Auftrag aus
+                // dem Scan-Pool nimmt.
+                $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadyRegistered', [
+                    'orderId'        => $orderId,
+                    'shippingStatus' => $info->shippingStatus ?? 'unknown',
+                    'note'           => 'ShippingInformation wird zurueckgesetzt fuer erneute Registrierung.',
+                ]);
+                $this->shippingInformation->resetShippingInformation((int)$orderId);
+                $open[] = $orderId;
             }
         }
         return $open;
