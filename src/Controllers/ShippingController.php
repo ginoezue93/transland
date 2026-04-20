@@ -344,11 +344,13 @@ class ShippingController extends Controller
                         'labelPath'     => $labelUrl,
                     ];
 
-                    // labelBase64: das ZPL/PDF base64 direkt aus der Zufall-Response
-                    // Zufall liefert label_data bereits als base64-String.
-                    if (!empty($result['label_data'])) {
-                        $updateData['labelBase64'] = $result['label_data'];
-                    }
+                    // HINWEIS: labelBase64 wird bewusst NICHT gesetzt für ZPL-Labels.
+                    // Plenty's Versandcenter-UI versucht labelBase64 als PDF-Vorschau
+                    // zu rendern. ZPL ist kein PDF → die UI hängt in einer Endlosschleife.
+                    // DHL setzt labelBase64 weil DHL PDF liefert. Wir liefern ZPL und
+                    // drucken ausschliesslich über plentyBase via labelPath (S3-URL).
+                    // Wenn venturama später PDF-Vorschau im Versandcenter braucht,
+                    // müssen wir zusätzlich ein PDF von Zufall holen (ohne ?format=ZPL).
 
                     $this->orderShippingPackage->updateOrderShippingPackage(
                         $plentyPkg->id,
@@ -490,13 +492,7 @@ class ShippingController extends Controller
             $orderId = (int) $orderId;
 
             try {
-                // 'labelBase64' muss explizit via $with geladen werden,
-                // sonst liefert Plenty nur die Metadaten ohne Label-Inhalt.
-                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages(
-                    $orderId,
-                    [],
-                    ['labelBase64']
-                );
+                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
                 $shipmentItems = [];
 
                 foreach ($plentyPackages as $pkg) {
@@ -522,17 +518,10 @@ class ShippingController extends Controller
                         }
                     }
 
-                    $item = [
+                    $shipmentItems[] = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkg->packageNumber ?? '',
                     ];
-
-                    // labelBase64 für Versandcenter-Druck mitsenden wenn vorhanden
-                    if (!empty($pkg->labelBase64)) {
-                        $item['labelBase64'] = $pkg->labelBase64;
-                    }
-
-                    $shipmentItems[] = $item;
                 }
 
                 $this->createOrderResult[$orderId] = $this->buildResultArray(
