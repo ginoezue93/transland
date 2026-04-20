@@ -311,13 +311,20 @@ class ShippingController extends Controller
                 //    den Zebra-Drucker. Deshalb muss im Storage das ROHE ZPL
                 //    liegen (^XA...^XZ), nicht der Base64-String.
                 //    Zufall liefert label_data als Base64 → erst dekodieren.
+                //
+                //    publicVisible=true erzeugt eine einfache öffentliche URL
+                //    ohne AWS-Signatur. Mit false generiert Plenty eine signierte
+                //    URL, aber die AWS-Credentials sind auf manchen Instanzen
+                //    leer → AuthorizationQueryParametersError. Labels sind nicht
+                //    vertraulich, öffentlich ist OK.
                 $sscc        = $result['sscc_list'][0] ?? ('transland-' . $orderId);
                 $storageKey  = $sscc . '.zpl';
                 $rawZpl      = base64_decode($result['label_data']);
                 $storageObject = $this->storageRepository->uploadObject(
                     'TranslandShipping',
                     $storageKey,
-                    $rawZpl
+                    $rawZpl,
+                    true
                 );
 
                 // Resolve a real label URL that plentyBase can fetch + print.
@@ -510,7 +517,7 @@ class ShippingController extends Controller
                             $labelUrl = $this->storageRepository->getObjectUrl(
                                 'TranslandShipping',
                                 $storageKey,
-                                false,
+                                true,
                                 60
                             );
                         } catch (\Exception $e) {
@@ -961,9 +968,9 @@ class ShippingController extends Controller
      *   ): string
      *
      * publicVisible MUST match what was passed to uploadObject(). We upload
-     * without making the object public, so false here. Default expiry is
-     * 5 minutes which is too short for packing-desk workflows, so we pass
-     * 60 minutes explicitly.
+     * with publicVisible=true to get a simple public URL without AWS signing.
+     * Signed URLs fail on some Plenty instances because the AWS Access Key
+     * is empty → AuthorizationQueryParametersError.
      *
      * Note: Plenty's plugin sandbox forbids method_exists(), Reflection,
      * and dynamic property access — so this helper is kept intentionally
@@ -974,10 +981,10 @@ class ShippingController extends Controller
     private function resolveLabelUrl(string $plugin, string $storageKey, $storageObject): string
     {
         try {
-            $url = $this->storageRepository->getObjectUrl($plugin, $storageKey, false, 60);
+            $url = $this->storageRepository->getObjectUrl($plugin, $storageKey, true, 60);
             if (is_string($url) && $url !== '' && strpos($url, 'http') === 0) {
                 $this->getLogger(__CLASS__)->error('TranslandShipping::label.urlResolved', [
-                    'strategy' => 'getObjectUrl(plugin,key,false,60)',
+                    'strategy' => 'getObjectUrl(plugin,key,true,60)',
                     'url'      => $url,
                 ]);
                 return $url;
