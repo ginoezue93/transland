@@ -121,7 +121,6 @@ class ShippingController extends Controller
                     'amounts',
                     'tags',
                     'properties',
-                    'comments',
                 ]);
 
                 if (!$order || !$order->id) {
@@ -176,88 +175,33 @@ class ShippingController extends Controller
                 }
 
                 // 4. Pakete aus Versandcenter laden
+                //    Der plentyBase-Prozess hat vor RegisterShipment einen
+                //    ShippingPackages-Schritt (genau wie DHL). Dort wählt der
+                //    Packer eine Paketvorlage (mit hinterlegten Maßen) und
+                //    gibt das Gewicht ein. Das erstellt ein OrderShippingPackage.
                 $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
-                $packagesFromNote = false;
 
                 if (empty($plentyPackages)) {
-                    // Keine Pakete vorhanden — versuche aus Packer-Notiz zu erstellen.
-                    // Der plentyBase-Prozess zeigt vor RegisterShipment einen
-                    // UserDialog + AddOrderInformation. Der Packer tippt dort
-                    // z.B. "FP;120;80;100;250" ein, und das wird als Auftragsnotiz
-                    // gespeichert. Wir parsen diese Notiz und erstellen daraus
-                    // ein Plenty-Versandpaket + Zufall-Payload.
-                    $parsed = $this->tryParsePackageNote($order);
-
-                    if ($parsed === null) {
-                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.noPackages', [
-                            'orderId' => $orderId,
-                            'note'    => 'Keine Pakete und keine parsbare Notiz gefunden. Bitte zuerst Verpackungsdaten eingeben.',
-                        ]);
-                        $this->createOrderResult[$orderId] = $this->buildResultArray(
-                            false,
-                            'Keine Pakete im Versandcenter und keine Verpackungsnotiz gefunden. Bitte Prozess mit Verpackungsdaten-Eingabe verwenden.',
-                            false,
-                            []
-                        );
-                        continue;
-                    }
-
-                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.autoCreateFromNote', [
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.noPackages', [
                         'orderId' => $orderId,
-                        'parsed'  => $parsed,
+                        'note'    => 'Keine Pakete im Versandcenter. Bitte im Prozess zuerst ein Paket anlegen (ShippingPackages-Schritt).',
                     ]);
-
-                    // Plenty-Paket erstellen (minimal: weight + packageId)
-                    // Das Paket wird gebraucht damit SSCC und Label-URL nach
-                    // dem API-Call zurückgeschrieben werden können.
-                    try {
-                        $this->orderShippingPackage->createOrderShippingPackage($orderId, [
-                            'packageId' => $parsed['packageId'],
-                            'weight'    => $parsed['weight_gr'],
-                        ]);
-                    } catch (\Exception $e) {
-                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.autoCreateFailed', [
-                            'orderId' => $orderId,
-                            'error'   => $e->getMessage(),
-                        ]);
-                        $this->createOrderResult[$orderId] = $this->buildResultArray(
-                            false,
-                            'Paket konnte nicht erstellt werden: ' . $e->getMessage(),
-                            false,
-                            []
-                        );
-                        continue;
-                    }
-
-                    // Plenty-Pakete neu laden (jetzt sollte eins da sein)
-                    $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
-                    if (empty($plentyPackages)) {
-                        $this->createOrderResult[$orderId] = $this->buildResultArray(
-                            false, 'Paket wurde erstellt aber konnte nicht geladen werden.', false, []
-                        );
-                        continue;
-                    }
-
-                    $packagesFromNote = true;
+                    $this->createOrderResult[$orderId] = $this->buildResultArray(
+                        false,
+                        'Keine Pakete im Versandcenter. Bitte zuerst ein Paket anlegen.',
+                        false,
+                        []
+                    );
+                    continue;
                 }
 
-                // 5. Pakete aufbereiten
-                if ($packagesFromNote) {
-                    // Aus der geparsten Packer-Notiz — Dimensionen kommen direkt
-                    // aus der Eingabe, nicht aus dem Plenty-Paketobjekt (das hätte 0).
-                    $packages = [[
-                        'content'           => 'Waren',
-                        'packaging_type'    => $parsed['packaging_type'],
-                        'length_cm'         => $parsed['length_cm'],
-                        'width_cm'          => $parsed['width_cm'],
-                        'height_cm'         => $parsed['height_cm'],
-                        'weight_gr'         => $parsed['weight_gr'],
-                        '_package_type_raw' => $parsed['packaging_type'],
-                    ]];
-                } else {
-                    // Normale Route: Paketvorlage aus Versandcenter
-                    $packages = $this->buildPackagesFromVersandcenter($plentyPackages, $hasHazmat);
-                }
+                $this->getLogger(__CLASS__)->error('TranslandShipping::register.packagesLoaded', [
+                    'orderId'      => $orderId,
+                    'packageCount' => count($plentyPackages),
+                ]);
+
+                // 5. Pakete aufbereiten — Maße kommen aus ShippingPackageType
+                $packages = $this->buildPackagesFromVersandcenter($plentyPackages, $hasHazmat);
 
                 // 5a. Gefahrgut-Block aus Plugin-Config an JEDE Position anhängen
                 //     wenn der Auftrag als Gefahrenstoff markiert ist.
@@ -295,35 +239,33 @@ class ShippingController extends Controller
                 $orderArray    = $this->orderToArray($order);
                 $parentOrderId = (int)($order->parentOrderId ?? 0);
 
-                // 7. ZPL Label erstellen via Transland API
-                //    $shipmentOptions enthält NextDay-Codes wenn entsprechender Tag gesetzt.
-                $result = $this->labelService->createLabelForOrder($orderArray, $packages, 'ZPL', $shipmentOptions);
+                // 7. Label erstellen via Transland API
+                //    PDF statt ZPL — genau wie DHL. PDF funktioniert im
+                //    Versandcenter (Vorschau + Download), in plentyBase (Druck
+                //    über Windows-Druckertreiber) und auf dem Zebra (via Treiber).
+                //    ZPL wäre native Zebra-Qualität, crasht aber Plenty's UI
+                //    weil das Versandcenter labelBase64 als PDF erwartet.
+                $result = $this->labelService->createLabelForOrder($orderArray, $packages, 'PDF', $shipmentOptions);
 
                 if (empty($result['label_data'])) {
                     $this->createOrderResult[$orderId] = $this->buildResultArray(
-                        false, 'Transland API hat kein ZPL zurueckgegeben', false, []
+                        false, 'Transland API hat kein Label zurueckgegeben', false, []
                     );
                     continue;
                 }
 
-                // 8. ZPL in PlentyONE S3 Storage speichern
-                //    plentyBase fetched die URL und sendet den Inhalt direkt an
-                //    den Zebra-Drucker. Deshalb muss im Storage das ROHE ZPL
-                //    liegen (^XA...^XZ), nicht der Base64-String.
-                //    Zufall liefert label_data als Base64 → erst dekodieren.
-                //
-                //    publicVisible=true erzeugt eine einfache öffentliche URL
-                //    ohne AWS-Signatur. Mit false generiert Plenty eine signierte
-                //    URL, aber die AWS-Credentials sind auf manchen Instanzen
-                //    leer → AuthorizationQueryParametersError. Labels sind nicht
-                //    vertraulich, öffentlich ist OK.
+                // 8. PDF in PlentyONE S3 Storage speichern
+                //    Base64 dekodieren → rohes PDF → S3 upload.
+                //    publicVisible=true für eine einfache öffentliche URL
+                //    (signierte URLs scheitern auf manchen Instanzen wegen
+                //    leerem AWS Access Key).
                 $sscc        = $result['sscc_list'][0] ?? ('transland-' . $orderId);
-                $storageKey  = $sscc . '.zpl';
-                $rawZpl      = base64_decode($result['label_data']);
+                $storageKey  = $sscc . '.pdf';
+                $rawPdf      = base64_decode($result['label_data']);
                 $storageObject = $this->storageRepository->uploadObject(
                     'TranslandShipping',
                     $storageKey,
-                    $rawZpl,
+                    $rawPdf,
                     true
                 );
 
@@ -338,10 +280,10 @@ class ShippingController extends Controller
                 // Model entsprechen (Stable7 Doku):
                 //   packageNumber  = SSCC/Paketnummer
                 //   labelPath      = URL zum Label (für plentyBase-Druck)
-                //   labelBase64    = base64-kodiertes Label (für Versandcenter-Anzeige)
+                //   labelBase64    = base64-kodiertes PDF (für Versandcenter-Anzeige)
                 //
-                // labelBase64 ist das was DHL auch setzt — damit erscheint der
-                // "Label drucken"-Button im Versandcenter.
+                // Genau wie DHL: labelBase64 mit PDF → Versandcenter zeigt
+                // Vorschau, Download und Drucken-Button.
                 $shipmentItems = [];
                 foreach ($plentyPackages as $idx => $plentyPkg) {
                     $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
@@ -349,15 +291,8 @@ class ShippingController extends Controller
                     $updateData = [
                         'packageNumber' => $pkgSscc,
                         'labelPath'     => $labelUrl,
+                        'labelBase64'   => $result['label_data'],
                     ];
-
-                    // HINWEIS: labelBase64 wird bewusst NICHT gesetzt für ZPL-Labels.
-                    // Plenty's Versandcenter-UI versucht labelBase64 als PDF-Vorschau
-                    // zu rendern. ZPL ist kein PDF → die UI hängt in einer Endlosschleife.
-                    // DHL setzt labelBase64 weil DHL PDF liefert. Wir liefern ZPL und
-                    // drucken ausschliesslich über plentyBase via labelPath (S3-URL).
-                    // Wenn venturama später PDF-Vorschau im Versandcenter braucht,
-                    // müssen wir zusätzlich ein PDF von Zufall holen (ohne ?format=ZPL).
 
                     $this->orderShippingPackage->updateOrderShippingPackage(
                         $plentyPkg->id,
@@ -373,7 +308,7 @@ class ShippingController extends Controller
                 // 10. ShippingInformation speichern (PlentyONE Standard)
                 $this->saveShippingInformation($orderId, $shipmentDate, $shipmentItems);
 
-                // 11. Sendungsdaten + ZPL fuer Bordero in Plugin-DB speichern
+                // 11. Sendungsdaten fuer Bordero in Plugin-DB speichern
                 $shipmentData                    = $result['shipment_data'];
                 $shipmentData['parent_order_id'] = $parentOrderId;
                 $shipmentData['has_hazmat']      = $hasHazmat ? 1 : 0;
@@ -499,20 +434,24 @@ class ShippingController extends Controller
             $orderId = (int) $orderId;
 
             try {
-                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+                // labelBase64 muss explizit via $with geladen werden
+                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages(
+                    $orderId,
+                    [],
+                    ['labelBase64']
+                );
                 $shipmentItems = [];
 
                 foreach ($plentyPackages as $pkg) {
                     $labelUrl = '';
 
-                    // labelPath ist das Feld das Plenty für die Label-URL nutzt
                     if (!empty($pkg->labelPath)) {
                         $labelUrl = (string) $pkg->labelPath;
                     }
 
                     // Fallback: Label-URL aus packageNumber + Storage resolven
                     if (empty($labelUrl) && !empty($pkg->packageNumber)) {
-                        $storageKey = $pkg->packageNumber . '.zpl';
+                        $storageKey = $pkg->packageNumber . '.pdf';
                         try {
                             $labelUrl = $this->storageRepository->getObjectUrl(
                                 'TranslandShipping',
@@ -525,10 +464,17 @@ class ShippingController extends Controller
                         }
                     }
 
-                    $shipmentItems[] = [
+                    $item = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkg->packageNumber ?? '',
                     ];
+
+                    // labelBase64 für Druck und Versandcenter
+                    if (!empty($pkg->labelBase64)) {
+                        $item['labelBase64'] = $pkg->labelBase64;
+                    }
+
+                    $shipmentItems[] = $item;
                 }
 
                 $this->createOrderResult[$orderId] = $this->buildResultArray(
@@ -602,169 +548,58 @@ class ShippingController extends Controller
         return $names;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Auto-create package from packer note
-    //
-    // The plentyBase process shows a UserDialog before RegisterShipment where
-    // the packer types packaging data in the format:
-    //
-    //   TYP;LAENGE;BREITE;HOEHE;GEWICHT_KG
-    //   e.g. "FP;120;80;100;250"
-    //
-    // This is saved as an order note/comment via AddOrderInformation.
-    // The method below reads the latest matching note and parses it.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Valid Zufall packaging type codes (spec page 13).
-     */
-    private const VALID_PACKAGING_TYPES = [
-        'BL', 'BU', 'CH', 'CP', 'CV', 'DP', 'EI', 'EP', 'FA', 'FP',
-        'GP', 'HP', 'KB', 'KI', 'KP', 'KT', 'PA', 'PK', 'SA', 'ST', 'VP',
-    ];
-
-    /**
-     * Try to find and parse a packaging note from the order's comments.
-     * Expected format: "TYP;LAENGE;BREITE;HOEHE;GEWICHT_KG"
-     *
-     * Returns parsed array or null if no matching note found.
-     */
-    private function tryParsePackageNote($order): ?array
-    {
-        // Try multiple locations where AddOrderInformation might store data.
-        // Plenty's internal model is not consistently documented, so we try
-        // comments first, then fall back to properties (customerSign).
-        $candidates = [];
-
-        // Source 1: order comments (most likely target of AddOrderInformation)
-        if (!empty($order->comments)) {
-            foreach ($order->comments as $comment) {
-                $text = '';
-                if (is_string($comment)) {
-                    $text = $comment;
-                } elseif (is_object($comment)) {
-                    $text = $comment->text ?? ($comment->comment ?? ($comment->value ?? ''));
-                } elseif (is_array($comment)) {
-                    $text = $comment['text'] ?? ($comment['comment'] ?? ($comment['value'] ?? ''));
-                }
-                $text = trim((string) $text);
-                if ($text !== '') {
-                    $candidates[] = $text;
-                }
-            }
-        }
-
-        // Source 2: order properties — CUSTOMER_SIGN (typeId 8)
-        if (!empty($order->properties)) {
-            foreach ($order->properties as $prop) {
-                $typeId = (int)($prop->typeId ?? 0);
-                if ($typeId === 8) {
-                    $val = trim((string)($prop->value ?? ''));
-                    if ($val !== '') {
-                        $candidates[] = $val;
-                    }
-                }
-            }
-        }
-
-        $this->getLogger(__CLASS__)->error('TranslandShipping::register.noteSearch', [
-            'candidateCount' => count($candidates),
-            'candidates'     => array_map(function ($c) {
-                return substr($c, 0, 80);
-            }, $candidates),
-        ]);
-
-        // Try to parse each candidate (newest first = end of array)
-        $reversed = array_reverse($candidates);
-        foreach ($reversed as $text) {
-            $parsed = $this->parsePackageString($text);
-            if ($parsed !== null) {
-                return $parsed;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Parse a single package string.
-     * Format: "TYP;LAENGE;BREITE;HOEHE;GEWICHT_KG"
-     * e.g.  : "FP;120;80;100;250"
-     *
-     * Returns parsed data array or null.
-     */
-    private function parsePackageString(string $input): ?array
-    {
-        $input = trim($input);
-
-        // Accept both ; and , as delimiter
-        $parts = preg_split('/[;,]/', $input);
-        if ($parts === false || count($parts) < 5) {
-            return null;
-        }
-
-        $type     = strtoupper(trim($parts[0]));
-        $lengthCm = (int) trim($parts[1]);
-        $widthCm  = (int) trim($parts[2]);
-        $heightCm = (int) trim($parts[3]);
-        $weightKg = (float) str_replace(',', '.', trim($parts[4]));
-
-        // Validate packaging type
-        if (!in_array($type, self::VALID_PACKAGING_TYPES, true)) {
-            return null;
-        }
-
-        // Sanity: at least some dimension should be > 0
-        if ($lengthCm <= 0 && $widthCm <= 0 && $heightCm <= 0 && $weightKg <= 0) {
-            return null;
-        }
-
-        $weightGr = (int) round($weightKg * 1000);
-
-        return [
-            'packaging_type' => $type,
-            'length_cm'      => $lengthCm,
-            'width_cm'       => $widthCm,
-            'height_cm'      => $heightCm,
-            'weight_gr'      => $weightGr,
-            'weight_kg'      => $weightKg,
-            // packageId for createOrderShippingPackage — use 1 as default.
-            // If venturama's Plenty has a different default package type ID,
-            // this can be changed in a future version or made configurable.
-            'packageId'      => 1,
-        ];
-    }
-
     private function buildPackagesFromVersandcenter(array $plentyPackages, bool $hasHazmat): array
     {
-        return array_map(function ($pkg) use ($hasHazmat) {
-            $packageTypeName = '';
-            if (!empty($pkg->shippingPackageType) && !empty($pkg->shippingPackageType->name)) {
-                $packageTypeName = $pkg->shippingPackageType->name;
-            } elseif (!empty($pkg->packageType) && !empty($pkg->packageType->name)) {
-                $packageTypeName = $pkg->packageType->name;
-            } elseif (!empty($pkg->packageTypeName)) {
-                $packageTypeName = $pkg->packageTypeName;
+        $packages = [];
+
+        foreach ($plentyPackages as $pkg) {
+            $packageTypeId = (int)($pkg->packageId ?? 0);
+            $packageTypeName = 'FP';
+            $lengthCm = 0;
+            $widthCm  = 0;
+            $heightCm = 0;
+
+            // Maße und Name kommen aus der Paketvorlage (ShippingPackageType),
+            // NICHT vom OrderShippingPackage selbst. Das OrderShippingPackage-Model
+            // hat keine length/width/height-Felder (nur weight).
+            // Die Paketvorlage wird in Plenty konfiguriert unter:
+            //   Einrichtung → Aufträge → Versand → Pakettypen
+            // Der Name der Vorlage MUSS der Zufall-Code sein (z.B. "FP", "EP", "KT").
+            if ($packageTypeId > 0) {
+                try {
+                    $packageType = $this->packageTypeRepository->findShippingPackageTypeById($packageTypeId);
+                    if ($packageType) {
+                        $packageTypeName = trim((string)($packageType->name ?? 'FP'));
+                        $lengthCm        = (int)($packageType->length ?? 0);
+                        $widthCm         = (int)($packageType->width  ?? 0);
+                        $heightCm        = (int)($packageType->height ?? 0);
+                    }
+                } catch (\Exception $e) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.packageTypeLookupFailed', [
+                        'packageTypeId' => $packageTypeId,
+                        'error'         => $e->getMessage(),
+                    ]);
+                }
             }
 
             $package = [
                 'content'           => 'Waren',
                 'packaging_type'    => $packageTypeName,
-                'length_cm'         => (int)($pkg->length ?? 0),
-                'width_cm'          => (int)($pkg->width  ?? 0),
-                'height_cm'         => (int)($pkg->height ?? 0),
+                'length_cm'         => $lengthCm,
+                'width_cm'          => $widthCm,
+                'height_cm'         => $heightCm,
                 'weight_gr'         => (int)($pkg->weight ?? 0),
                 '_package_type_raw' => $packageTypeName,
             ];
 
-            // Gefahrstoff: Platzhalter bis Zufall API v2 Felder definiert
-            // TODO: Felder ergaenzen wenn Venturama UN-Nummern in PlentyONE pflegt
             if ($hasHazmat) {
                 $package['dangerous_goods'] = [];
             }
 
-            return $package;
-        }, $plentyPackages);
+            $packages[] = $package;
+        }
+
+        return $packages;
     }
 
     private function runPostLabelActions($order): void
