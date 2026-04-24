@@ -302,6 +302,7 @@ class ShippingController extends Controller
                     $shipmentItems[] = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkgSscc,
+                        'labelBase64'    => $result['label_data'],
                     ];
                 }
 
