@@ -288,17 +288,24 @@ class ShippingController extends Controller
                 foreach ($plentyPackages as $idx => $plentyPkg) {
                     $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
 
-                    $updateData = [
-                        'packageNumber' => $pkgSscc,
-                        'labelPath'     => $labelUrl,
-                        'labelBase64'   => $result['label_data'],
-                    ];
-
+                    // Am Paket speichern: nur packageNumber + labelPath.
+                    // labelBase64 wird NICHT am Paket gespeichert weil:
+                    //   - Zufall-PDFs sind ~462KB (hochauflösende Grafiken)
+                    //   - Versandcenter-UI hängt beim Laden großer labelBase64
+                    //   - getLabels-Endpoint crashed mit Memory Exhaustion
+                    // Das Label wird stattdessen direkt im registerShipments-
+                    // Response an plentyBase zurückgegeben (siehe unten).
                     $this->orderShippingPackage->updateOrderShippingPackage(
                         $plentyPkg->id,
-                        $updateData
+                        [
+                            'packageNumber' => $pkgSscc,
+                            'labelPath'     => $labelUrl,
+                        ]
                     );
 
+                    // Response an plentyBase: labelBase64 MIT PDF-Daten.
+                    // plentyBase liest das direkt aus dem registerShipments-
+                    // Response und schickt es sofort an den Drucker.
                     $shipmentItems[] = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkgSscc,
@@ -435,12 +442,11 @@ class ShippingController extends Controller
             $orderId = (int) $orderId;
 
             try {
-                // labelBase64 muss explizit via $with geladen werden
-                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages(
-                    $orderId,
-                    [],
-                    ['labelBase64']
-                );
+                // KEIN ['labelBase64'] im $with-Parameter!
+                // Zufall-PDFs sind ~462KB und crashen Plenty's getLabels-
+                // Endpoint mit Memory Exhaustion. plentyBase druckt über
+                // die labelUrl (S3-URL → PDF-Download).
+                $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
                 $shipmentItems = [];
 
                 foreach ($plentyPackages as $pkg) {
@@ -465,17 +471,10 @@ class ShippingController extends Controller
                         }
                     }
 
-                    $item = [
+                    $shipmentItems[] = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkg->packageNumber ?? '',
                     ];
-
-                    // labelBase64 für Druck und Versandcenter
-                    if (!empty($pkg->labelBase64)) {
-                        $item['labelBase64'] = $pkg->labelBase64;
-                    }
-
-                    $shipmentItems[] = $item;
                 }
 
                 $this->createOrderResult[$orderId] = $this->buildResultArray(
