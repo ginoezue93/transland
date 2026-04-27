@@ -288,24 +288,23 @@ class ShippingController extends Controller
                 foreach ($plentyPackages as $idx => $plentyPkg) {
                     $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
 
-                    // Am Paket speichern: nur packageNumber + labelPath.
-                    // labelBase64 wird NICHT am Paket gespeichert weil:
-                    //   - Zufall-PDFs sind ~462KB (hochauflösende Grafiken)
-                    //   - Versandcenter-UI hängt beim Laden großer labelBase64
-                    //   - getLabels-Endpoint crashed mit Memory Exhaustion
-                    // Das Label wird stattdessen direkt im registerShipments-
-                    // Response an plentyBase zurückgegeben (siehe unten).
+                    // Printing-Sub-Aktion in plentyBase liest labelBase64
+                    // direkt vom OrderShippingPackage. Ohne labelBase64 am
+                    // Paket kommt "No documents are available".
+                    //
+                    // WICHTIG: getLabels lädt labelBase64 NICHT mit, um
+                    // Memory-Probleme bei Massenabfragen zu vermeiden.
+                    // Der Memory-Crash von vorher kam von angesammelten
+                    // alten Paketen, nicht von einem einzelnen 462KB PDF.
                     $this->orderShippingPackage->updateOrderShippingPackage(
                         $plentyPkg->id,
                         [
                             'packageNumber' => $pkgSscc,
                             'labelPath'     => $labelUrl,
+                            'labelBase64'   => $result['label_data'],
                         ]
                     );
 
-                    // Response an plentyBase: labelBase64 MIT PDF-Daten.
-                    // plentyBase liest das direkt aus dem registerShipments-
-                    // Response und schickt es sofort an den Drucker.
                     $shipmentItems[] = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkgSscc,
@@ -442,10 +441,6 @@ class ShippingController extends Controller
             $orderId = (int) $orderId;
 
             try {
-                // KEIN ['labelBase64'] im $with-Parameter!
-                // Zufall-PDFs sind ~462KB und crashen Plenty's getLabels-
-                // Endpoint mit Memory Exhaustion. plentyBase druckt über
-                // die labelUrl (S3-URL → PDF-Download).
                 $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
                 $shipmentItems = [];
 
@@ -471,10 +466,23 @@ class ShippingController extends Controller
                         }
                     }
 
-                    $shipmentItems[] = [
+                    $item = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkg->packageNumber ?? '',
                     ];
+
+                    // PDF von S3-URL live fetchen und als labelBase64 zurückgeben.
+                    // Wir speichern labelBase64 NICHT in der DB (462KB PDFs
+                    // verursachen Memory Exhaustion beim Laden), sondern holen
+                    // das PDF on-demand per curl von der öffentlichen S3-URL.
+                    if (!empty($labelUrl)) {
+                        $pdfData = $this->fetchUrlViaCurl($labelUrl);
+                        if ($pdfData !== null && strlen($pdfData) > 0) {
+                            $item['labelBase64'] = base64_encode($pdfData);
+                        }
+                    }
+
+                    $shipmentItems[] = $item;
                 }
 
                 $this->createOrderResult[$orderId] = $this->buildResultArray(
@@ -844,5 +852,39 @@ class ShippingController extends Controller
             'storageKey' => $fallback,
         ]);
         return $fallback;
+    }
+
+    /**
+     * Fetch raw content from a URL via curl.
+     *
+     * Used by getLabels to download the PDF from S3 on-demand,
+     * avoiding the need to store 462KB+ PDFs in the database.
+     * curl is explicitly allowed in Plenty's plugin sandbox.
+     *
+     * @return string|null Raw response body, or null on failure.
+     */
+    private function fetchUrlViaCurl(string $url): ?string
+    {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+
+        $body = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $httpCode !== 200) {
+            $this->getLogger(__CLASS__)->error('TranslandShipping::getLabels.curlFetchFailed', [
+                'url'      => substr($url, 0, 120),
+                'httpCode' => $httpCode,
+                'error'    => $error,
+            ]);
+            return null;
+        }
+
+        return $body;
     }
 }
