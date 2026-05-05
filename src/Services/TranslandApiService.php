@@ -35,8 +35,8 @@ class TranslandApiService
             ? 'test-edigate.zufall.de'
             : 'edigate.zufall.de';
 
-        // e.g. https://test-edigate.zufall.de/dw/request/shippingapi/venturama
-        $this->baseUrl = 'https://' . $host . '/dw/request/shippingapi/' . $customerId;
+        // e.g. https://test-edigate.zufall.de/dw/request/shippingapi/venturama/V2
+        $this->baseUrl = 'https://' . $host . '/dw/request/shippingapi/' . $customerId . '/V2';
     }
 
     // -------------------------------------------------------------------------

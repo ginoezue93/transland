@@ -562,22 +562,18 @@ class ShippingController extends Controller
 
         foreach ($plentyPackages as $pkg) {
             $packageTypeId = (int)($pkg->packageId ?? 0);
-            $packageTypeName = 'FP';
+            $packageTypeName = '';
             $lengthCm = 0;
             $widthCm  = 0;
             $heightCm = 0;
 
-            // Maße und Name kommen aus der Paketvorlage (ShippingPackageType),
-            // NICHT vom OrderShippingPackage selbst. Das OrderShippingPackage-Model
-            // hat keine length/width/height-Felder (nur weight).
-            // Die Paketvorlage wird in Plenty konfiguriert unter:
-            //   Einrichtung → Aufträge → Versand → Pakettypen
-            // Der Name der Vorlage MUSS der Zufall-Code sein (z.B. "FP", "EP", "KT").
+            // Maße und Name kommen aus der Paketvorlage (ShippingPackageType).
+            // Das OrderShippingPackage-Model hat keine length/width/height.
             if ($packageTypeId > 0) {
                 try {
                     $packageType = $this->packageTypeRepository->findShippingPackageTypeById($packageTypeId);
                     if ($packageType) {
-                        $packageTypeName = trim((string)($packageType->name ?? 'FP'));
+                        $packageTypeName = trim((string)($packageType->name ?? ''));
                         $lengthCm        = (int)($packageType->length ?? 0);
                         $widthCm         = (int)($packageType->width  ?? 0);
                         $heightCm        = (int)($packageType->height ?? 0);
@@ -590,9 +586,44 @@ class ShippingController extends Controller
                 }
             }
 
+            // Zufall-Code aus dem Paketnamen extrahieren.
+            // Konvention: Name = "CODE_Beschreibung", z.B.:
+            //   "KP_Europalette"      → KP
+            //   "EP500_Modulpalette"  → EP  (Ziffern am Ende des Prefix werden entfernt)
+            //   "PA_Paket"            → PA
+            //   "Standardpaket"       → PA  (kein Underscore → Default)
+            //
+            // AUSNAHME: BU (Bund) Typen werden VOLLSTÄNDIG durchgereicht,
+            // z.B. "BU_240_8_8" → "BU_240_8_8". Jede BU-Variante ist ein
+            // eigener Verpackungstyp bei Zufall.
+            $zufallCode = 'PA';
+            if ($packageTypeName !== '') {
+                $upperName = strtoupper($packageTypeName);
+                if (strpos($upperName, 'BU_') === 0 || strpos($upperName, 'BU-') === 0) {
+                    // BU-Typen: vollständiger Name durchreichen
+                    $zufallCode = $packageTypeName;
+                } elseif (strpos($packageTypeName, '_') !== false) {
+                    // Andere Typen: Prefix vor dem ersten _ extrahieren
+                    $prefix = substr($packageTypeName, 0, strpos($packageTypeName, '_'));
+                    // Ziffern am Ende entfernen: EP500 → EP
+                    $prefix = preg_replace('/[0-9]+$/', '', $prefix);
+                    if ($prefix !== '' && $prefix !== null) {
+                        $zufallCode = strtoupper($prefix);
+                    }
+                }
+            }
+
+            $this->getLogger(__CLASS__)->error('TranslandShipping::register.packageTypeResolved', [
+                'packageTypeId'   => $packageTypeId,
+                'packageTypeName' => $packageTypeName,
+                'zufallCode'      => $zufallCode,
+                'dimensions'      => $lengthCm . 'x' . $widthCm . 'x' . $heightCm,
+                'weightGr'        => (int)($pkg->weight ?? 0),
+            ]);
+
             $package = [
                 'content'           => 'Waren',
-                'packaging_type'    => $packageTypeName,
+                'packaging_type'    => $zufallCode,
                 'length_cm'         => $lengthCm,
                 'width_cm'          => $widthCm,
                 'height_cm'         => $heightCm,

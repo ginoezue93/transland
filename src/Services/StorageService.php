@@ -25,9 +25,11 @@ class StorageService
         $consignee = $data['consignee_address'] ?? [];
 
         $record->orderId          = (int)($data['order_id'] ?? 0);
+        $record->parentOrderId    = (int)($data['parent_order_id'] ?? 0);
         $record->pickupDate       = $data['pickup_date'] ?? self::calcPickupDate();
         $record->listId           = '';
         $record->submitted        = 0;
+        $record->labelPrinted     = 1;
 
         $record->consigneeName1   = $consignee['name1']          ?? '';
         $record->consigneeName2   = $consignee['name2']          ?? '';

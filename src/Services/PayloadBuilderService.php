@@ -170,11 +170,11 @@ class PayloadBuilderService
             'pickup_date' => date('Y-m-d'),
             'franking' => '1',
             'reference' => $this->buildReference($order),
-            'value' => $this->getOrderValue($order),  // int Cent, wird in LabelService umgerechnet
-            'value_currency' => $this->getOrderCurrency($order),
+            'shipping_value' => $this->getOrderValue($order),
+            'shipping_currency' => $this->getOrderCurrency($order),
             'weight_gr' => $this->calculateTotalWeightGram($packages),
             'options' => $options,
-            'packages' => $this->buildPackages($packages, $order),
+            'positions' => $this->buildPositions($packages, $order),
             'texts' => $this->buildTexts($order),
         ];
     }
@@ -209,10 +209,10 @@ class PayloadBuilderService
             'procurement' => $shipment['procurement'] ?? false,
             'franking' => $shipment['franking'] ?? '1',
             'reference' => $shipment['reference'] ?? '',
-            'value' => (int) round((float) ($shipment['value'] ?? 0)),
-            'value_currency' => $shipment['value_currency'] ?? 'EUR',
+            'shipping_value' => round((float) ($shipment['value'] ?? 0), 2),
+            'shipping_currency' => $shipment['value_currency'] ?? 'EUR',
             'weight_gr' => (int) ($shipment['weight_gr'] ?? 0),
-            'packages' => $shipment['packages'] ?? [],
+            'positions' => $shipment['packages'] ?? [],
         ];
 
         // OPTIONEN REINIGEN
@@ -334,7 +334,7 @@ class PayloadBuilderService
      *   - packages (NVE/SSCC barcodes — filled after label creation)
      *   - dangerous_goods (placeholder array, filled when hazmat spec is known)
      */
-    public function buildPackages(array $packages, array $order = []): array
+    public function buildPositions(array $packages, array $order = []): array
     {
         // The Zufall "reference" field is a customer reference that ends up
         // on the transport invoice. Per project decision we always use the
@@ -457,14 +457,14 @@ class PayloadBuilderService
         return (string) ($order['id'] ?? '');
     }
 
-    private function getOrderValue(array $order): int
+    private function getOrderValue(array $order): float
     {
         foreach (($order['amounts'] ?? []) as $amount) {
             if (($amount['isNet'] ?? false) === false) {
-                return (int) round(($amount['invoiceTotal'] ?? 0) * 100);
+                return round((float)($amount['invoiceTotal'] ?? 0), 2);
             }
         }
-        return 0;
+        return 0.0;
     }
 
     private function getOrderCurrency(array $order): string
@@ -492,14 +492,22 @@ class PayloadBuilderService
 
     private function mapPackagingType(string $type): string
     {
-        $upper = strtoupper(trim($type));
+        $trimmed = trim($type);
+        $upper = strtoupper($trimmed);
+
+        // BU (Bund) Typen werden vollständig durchgereicht, z.B. BU_240_8_8.
+        // Jede BU-Variante ist ein eigener Verpackungstyp bei Zufall.
+        if (strpos($upper, 'BU_') === 0 || strpos($upper, 'BU-') === 0) {
+            return $trimmed;
+        }
+
         $validCodes = ['BL', 'BU', 'CH', 'CP', 'CV', 'DP', 'EI', 'EP', 'FA', 'FP', 'GP', 'HP', 'KB', 'KI', 'KP', 'KT', 'PA', 'PK', 'SA', 'ST', 'VP'];
 
         if (in_array($upper, $validCodes, true)) {
             return $upper;
         }
 
-        return self::PACKAGING_TYPE_MAP[strtolower(trim($type))] ?? 'FP';
+        return self::PACKAGING_TYPE_MAP[strtolower($trimmed)] ?? 'FP';
     }
 
     private function mapCountryId(int $countryId): string
