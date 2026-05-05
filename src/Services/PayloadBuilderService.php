@@ -492,22 +492,14 @@ class PayloadBuilderService
 
     private function mapPackagingType(string $type): string
     {
-        $trimmed = trim($type);
-        $upper = strtoupper($trimmed);
-
-        // BU (Bund) Typen werden vollständig durchgereicht, z.B. BU_240_8_8.
-        // Jede BU-Variante ist ein eigener Verpackungstyp bei Zufall.
-        if (strpos($upper, 'BU_') === 0 || strpos($upper, 'BU-') === 0) {
-            return $trimmed;
-        }
-
+        $upper = strtoupper(trim($type));
         $validCodes = ['BL', 'BU', 'CH', 'CP', 'CV', 'DP', 'EI', 'EP', 'FA', 'FP', 'GP', 'HP', 'KB', 'KI', 'KP', 'KT', 'PA', 'PK', 'SA', 'ST', 'VP'];
 
         if (in_array($upper, $validCodes, true)) {
             return $upper;
         }
 
-        return self::PACKAGING_TYPE_MAP[strtolower($trimmed)] ?? 'FP';
+        return self::PACKAGING_TYPE_MAP[strtolower(trim($type))] ?? 'FP';
     }
 
     private function mapCountryId(int $countryId): string

@@ -590,26 +590,20 @@ class ShippingController extends Controller
             // Konvention: Name = "CODE_Beschreibung", z.B.:
             //   "KP_Europalette"      → KP
             //   "EP500_Modulpalette"  → EP  (Ziffern am Ende des Prefix werden entfernt)
+            //   "BU_240_8_8"          → BU  (Zufall Spec: packaging_type max 3 Zeichen)
             //   "PA_Paket"            → PA
             //   "Standardpaket"       → PA  (kein Underscore → Default)
             //
-            // AUSNAHME: BU (Bund) Typen werden VOLLSTÄNDIG durchgereicht,
-            // z.B. "BU_240_8_8" → "BU_240_8_8". Jede BU-Variante ist ein
-            // eigener Verpackungstyp bei Zufall.
+            // Die Maße kommen aus den Plenty-Paketvorlage-Feldern (length/width/height),
+            // nicht aus dem Namen. BU_240_8_8 und BU_600_52_52 senden beide "BU"
+            // an Zufall — der Unterschied sind die Dimensionen.
             $zufallCode = 'PA';
-            if ($packageTypeName !== '') {
-                $upperName = strtoupper($packageTypeName);
-                if (strpos($upperName, 'BU_') === 0 || strpos($upperName, 'BU-') === 0) {
-                    // BU-Typen: vollständiger Name durchreichen
-                    $zufallCode = $packageTypeName;
-                } elseif (strpos($packageTypeName, '_') !== false) {
-                    // Andere Typen: Prefix vor dem ersten _ extrahieren
-                    $prefix = substr($packageTypeName, 0, strpos($packageTypeName, '_'));
-                    // Ziffern am Ende entfernen: EP500 → EP
-                    $prefix = preg_replace('/[0-9]+$/', '', $prefix);
-                    if ($prefix !== '' && $prefix !== null) {
-                        $zufallCode = strtoupper($prefix);
-                    }
+            if ($packageTypeName !== '' && strpos($packageTypeName, '_') !== false) {
+                $prefix = substr($packageTypeName, 0, strpos($packageTypeName, '_'));
+                // Ziffern am Ende entfernen: EP500 → EP
+                $prefix = preg_replace('/[0-9]+$/', '', $prefix);
+                if ($prefix !== '' && $prefix !== null) {
+                    $zufallCode = strtoupper($prefix);
                 }
             }
 
