@@ -82,4 +82,88 @@ class DiagnosticsController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * POST /rest/transland/diagnostics/bordero
+     * Manueller Bordero-Trigger. Sendet alle pending Sendungen sofort an Zufall.
+     * Kann jederzeit aufgerufen werden — unabhaengig vom Cron.
+     */
+    public function triggerBordero(Request $request, Response $response): Response
+    {
+        try {
+            $this->getLogger(__CLASS__)->error('TranslandShipping::diagnostics.borderoManual', [
+                'triggeredBy' => 'manual',
+                'time'        => date('Y-m-d H:i:s'),
+            ]);
+
+            /** @var \TranslandShipping\Services\SettingsService $settingsService */
+            $settingsService = pluginApp(\TranslandShipping\Services\SettingsService::class);
+            $settings        = $settingsService->getSettings();
+            $returnList      = (bool)($settings['return_ladeliste_pdf'] ?? true);
+
+            /** @var \TranslandShipping\Services\ShippingListService $shippingListService */
+            $shippingListService = pluginApp(\TranslandShipping\Services\ShippingListService::class);
+            $result = $shippingListService->submitDailyShipments('', $returnList);
+
+            $this->getLogger(__CLASS__)->error('TranslandShipping::diagnostics.borderoResult', [
+                'result'         => $result['result'] ?? 'unknown',
+                'shipment_count' => $result['shipment_count'] ?? 0,
+                'list_id'        => $result['list_id'] ?? '',
+            ]);
+
+            return $response->json([
+                'success'        => true,
+                'result'         => $result['result'] ?? 'unknown',
+                'shipment_count' => $result['shipment_count'] ?? 0,
+                'list_id'        => $result['list_id'] ?? '',
+                'message'        => ($result['result'] ?? '') === 'no_pending'
+                    ? 'Keine pending Sendungen gefunden. Erst Auftraege registrieren.'
+                    : 'Bordero an Zufall gesendet.',
+            ]);
+
+        } catch (\Exception $e) {
+            $this->getLogger(__CLASS__)->error('TranslandShipping::diagnostics.borderoError', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return $response->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * GET /rest/transland/diagnostics/pending
+     * Zeigt alle pending Sendungen die beim naechsten Bordero gesendet wuerden.
+     */
+    public function listPending(Request $request, Response $response): Response
+    {
+        try {
+            /** @var \TranslandShipping\Services\StorageService $storageService */
+            $storageService = pluginApp(\TranslandShipping\Services\StorageService::class);
+            $pending = $storageService->getPendingShipments('');
+
+            return $response->json([
+                'success' => true,
+                'count'   => count($pending),
+                'shipments' => array_map(function ($s) {
+                    return [
+                        'orderId'       => $s['order_id'] ?? 0,
+                        'reference'     => $s['reference'] ?? '',
+                        'pickupDate'    => $s['pickup_date'] ?? '',
+                        'weightGr'      => $s['weight_gr'] ?? 0,
+                        'labelPrinted'  => $s['label_printed'] ?? 0,
+                        'submitted'     => $s['submitted'] ?? 0,
+                    ];
+                }, $pending),
+            ]);
+
+        } catch (\Exception $e) {
+            return $response->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }

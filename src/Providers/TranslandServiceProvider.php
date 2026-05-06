@@ -100,6 +100,6 @@ class TranslandServiceProvider extends ServiceProvider
         // ── 3. Daily Bordero Cron ────────────────────────────────────────────
         /** @var CronContainer $cronContainer */
         $cronContainer = pluginApp(CronContainer::class);
-        $cronContainer->add(CronContainer::DAILY, DailyShippingListCron::class);
+        $cronContainer->add(CronContainer::EVERY_FIFTEEN_MINUTES, DailyShippingListCron::class);
     }
 }

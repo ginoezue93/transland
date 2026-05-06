@@ -8,7 +8,12 @@ use Plenty\Plugin\Routing\ApiRouter;
 
 class TranslandRouteServiceProvider extends RouteServiceProvider
 {
-    public function map(Router $router): void { }
+    public function map(Router $router): void
+    {
+        // Admin-Seite für manuellen Bordero-Trigger
+        // Erreichbar unter: https://p63121.my.plentysystems.com/transland/admin
+        $router->get('transland/admin', 'TranslandShipping\\Controllers\\AdminController@showDashboard');
+    }
 
     public function mapApi(ApiRouter $apiRouter): void
     {
@@ -19,6 +24,8 @@ class TranslandRouteServiceProvider extends RouteServiceProvider
                 // Diagnose-Endpoints (fuer Debugging)
                 $apiRouter->get('transland/diagnostics/providers',            'DiagnosticsController@listProviders');
                 $apiRouter->post('transland/diagnostics/register/{orderId}',  'DiagnosticsController@triggerRegister');
+                $apiRouter->post('transland/diagnostics/bordero',             'DiagnosticsController@triggerBordero');
+                $apiRouter->get('transland/diagnostics/pending',              'DiagnosticsController@listPending');
 
                 // Bordero-Endpoints
                 $apiRouter->post('transland/submit-day',    'ShippingListController@submitDailyShipments');

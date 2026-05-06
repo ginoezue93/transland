@@ -25,17 +25,14 @@ class DailyShippingListCron extends CronHandler
             return;
         }
 
-        // Zeitfenster-Check: nur um 12:00 Berliner Zeit ausführen (±30 Min)
-        // Server läuft auf UTC: Winter UTC+1, Sommer UTC+2
+        // Zeitfenster-Check: nur um 12:00 Berliner Zeit ausführen (±7 Min).
+        // Registriert als EVERY_FIFTEEN_MINUTES damit wir zuverlässig um 12:00
+        // feuern. CronContainer::DAILY läuft oft nachts und trifft 12:00 nie.
         $utcMonth = (int)date('n');
         $offsetSeconds = ($utcMonth >= 4 && $utcMonth <= 10) ? 7200 : 3600;
         $berlinHour   = (int)date('G', time() + $offsetSeconds);
         $berlinMinute = (int)date('i', time() + $offsetSeconds);
-        $berlinMinutes = $berlinHour * 60 + $berlinMinute;
-        $targetMinutes = 12 * 60; // 12:00
-        $diff = $berlinMinutes - $targetMinutes;
-        $diff = max($diff, -$diff);
-        if ($diff > 30) {
+        if ($berlinHour !== 12 || $berlinMinute > 14) {
             return;
         }
 
