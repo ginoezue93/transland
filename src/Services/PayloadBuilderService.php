@@ -171,7 +171,7 @@ class PayloadBuilderService
             'franking' => '1',
             'reference' => $this->buildReference($order),
             'shipping_value' => $this->getOrderValue($order),
-            'shipping_currency' => $this->getOrderCurrency($order),
+            'value_currency' => $this->getOrderCurrency($order),
             'weight_gr' => $this->calculateTotalWeightGram($packages),
             'options' => $options,
             'positions' => $this->buildPositions($packages, $order),
@@ -210,7 +210,7 @@ class PayloadBuilderService
             'franking' => $shipment['franking'] ?? '1',
             'reference' => $shipment['reference'] ?? '',
             'shipping_value' => round((float) ($shipment['value'] ?? 0), 2),
-            'shipping_currency' => $shipment['value_currency'] ?? 'EUR',
+            'value_currency' => $shipment['value_currency'] ?? 'EUR',
             'weight_gr' => (int) ($shipment['weight_gr'] ?? 0),
             'positions' => $shipment['packages'] ?? [],
         ];

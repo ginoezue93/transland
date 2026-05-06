@@ -92,15 +92,25 @@ class TranslandApiService
             $positionsArray = $data['packages'];
         }
 
-        // Extract SSCCs from the position array. In v2.0, each position has
-        // a nested "packages" array with sscc entries. In v1.x, the position
-        // itself has a top-level sscc field.
+        // Extract SSCCs from the position array.
+        // V2 actual response: position.ssccs[] (array of strings)
+        // V2 doc spec: position.packages[].sscc
+        // V1: position.sscc (flat string)
+        // We support all three for maximum compatibility.
         $ssccList = [];
         foreach ($positionsArray as $pos) {
             if (!is_array($pos)) {
                 continue;
             }
-            // v2.0: position.packages[].sscc
+            // V2 actual: position.ssccs[] (array of SSCC strings)
+            if (isset($pos['ssccs']) && is_array($pos['ssccs'])) {
+                foreach ($pos['ssccs'] as $sscc) {
+                    if (!empty($sscc)) {
+                        $ssccList[] = (string) $sscc;
+                    }
+                }
+            }
+            // V2 doc: position.packages[].sscc
             if (isset($pos['packages']) && is_array($pos['packages'])) {
                 foreach ($pos['packages'] as $pkg) {
                     if (is_array($pkg) && !empty($pkg['sscc'])) {
@@ -108,7 +118,7 @@ class TranslandApiService
                     }
                 }
             }
-            // v1.x: position.sscc (flat)
+            // V1: position.sscc (flat)
             if (!empty($pos['sscc'])) {
                 $ssccList[] = (string) $pos['sscc'];
             }
