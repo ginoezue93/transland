@@ -19,19 +19,30 @@ class DailyShippingListCron extends CronHandler
 
     public function handle(): void
     {
-        // Wochenende überspringen (Sa=6, So=7)
-        $dow = (int)date('N');
-        if ($dow >= 6) {
-            return;
-        }
-
-        // Zeitfenster-Check: nur um 12:00 Berliner Zeit ausführen (±7 Min).
-        // Registriert als EVERY_FIFTEEN_MINUTES damit wir zuverlässig um 12:00
-        // feuern. CronContainer::DAILY läuft oft nachts und trifft 12:00 nie.
+        // Debug-Log GANZ AM ANFANG — vor jedem Check.
+        // Damit sehen wir ob Plenty den Cron überhaupt aufruft.
         $utcMonth = (int)date('n');
         $offsetSeconds = ($utcMonth >= 4 && $utcMonth <= 10) ? 7200 : 3600;
         $berlinHour   = (int)date('G', time() + $offsetSeconds);
         $berlinMinute = (int)date('i', time() + $offsetSeconds);
+        $serverTime   = date('Y-m-d H:i:s');
+        $dow          = (int)date('N');
+
+        $this->getLogger(__METHOD__)->error('TranslandShipping::cron.ping', [
+            'serverTime'    => $serverTime,
+            'serverHour'    => (int)date('G'),
+            'berlinHour'    => $berlinHour,
+            'berlinMinute'  => $berlinMinute,
+            'dayOfWeek'     => $dow,
+            'offsetSeconds' => $offsetSeconds,
+        ]);
+
+        // Wochenende überspringen (Sa=6, So=7)
+        if ($dow >= 6) {
+            return;
+        }
+
+        // Zeitfenster-Check: nur um 12:00 Berliner Zeit ausführen (±14 Min).
         if ($berlinHour !== 12 || $berlinMinute > 14) {
             return;
         }
