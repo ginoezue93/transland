@@ -19,22 +19,15 @@ class DailyShippingListCron extends CronHandler
 
     public function handle(): void
     {
-        // Debug-Log GANZ AM ANFANG — vor jedem Check.
-        // Damit sehen wir ob Plenty den Cron überhaupt aufruft.
-        $utcMonth = (int)date('n');
-        $offsetSeconds = ($utcMonth >= 4 && $utcMonth <= 10) ? 7200 : 3600;
-        $berlinHour   = (int)date('G', time() + $offsetSeconds);
-        $berlinMinute = (int)date('i', time() + $offsetSeconds);
-        $serverTime   = date('Y-m-d H:i:s');
-        $dow          = (int)date('N');
+        $dow  = (int)date('N');
+        $hour = (int)date('G');
+        $min  = (int)date('i');
 
         $this->getLogger(__METHOD__)->error('TranslandShipping::cron.ping', [
-            'serverTime'    => $serverTime,
-            'serverHour'    => (int)date('G'),
-            'berlinHour'    => $berlinHour,
-            'berlinMinute'  => $berlinMinute,
-            'dayOfWeek'     => $dow,
-            'offsetSeconds' => $offsetSeconds,
+            'serverTime' => date('Y-m-d H:i:s'),
+            'hour'       => $hour,
+            'minute'     => $min,
+            'dayOfWeek'  => $dow,
         ]);
 
         // Wochenende überspringen (Sa=6, So=7)
@@ -42,8 +35,9 @@ class DailyShippingListCron extends CronHandler
             return;
         }
 
-        // Zeitfenster-Check: nur um 12:00 Berliner Zeit ausführen (±14 Min).
-        if ($berlinHour !== 12 || $berlinMinute > 14) {
+        // Nur um 12:00-12:14 ausführen.
+        // Server läuft bereits auf Berliner Zeit — kein Offset nötig.
+        if ($hour !== 12 || $min > 14) {
             return;
         }
 
@@ -52,8 +46,7 @@ class DailyShippingListCron extends CronHandler
         $settings        = $settingsService->getSettings();
 
         $this->getLogger(__METHOD__)->error('TranslandShipping::cron.start', [
-            'time'       => date('H:i:s'),
-            'berlin_time' => $berlinHour . ':' . str_pad((string)$berlinMinute, 2, '0', 0),
+            'time' => date('H:i:s'),
         ]);
 
         try {

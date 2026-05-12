@@ -11,8 +11,15 @@ class TranslandRouteServiceProvider extends RouteServiceProvider
     public function map(Router $router): void
     {
         // Admin-Seite für manuellen Bordero-Trigger
-        // Erreichbar unter: https://p63121.my.plentysystems.com/transland/admin
         $router->get('transland/admin', 'TranslandShipping\\Controllers\\AdminController@showDashboard');
+
+        // Webhook für externen Cron-Dienst (z.B. cron-job.org)
+        // Aufruf: GET https://domain.com/transland/webhook/bordero?token=DEIN_TOKEN
+        // Kein Login nötig — Token schützt vor unbefugtem Zugriff.
+        $router->get('transland/webhook/bordero', 'TranslandShipping\\Controllers\\AdminController@webhookBordero');
+
+        // Pending Sendungen anzeigen (für Admin-Seite)
+        $router->get('transland/webhook/pending', 'TranslandShipping\\Controllers\\AdminController@webhookPending');
     }
 
     public function mapApi(ApiRouter $apiRouter): void

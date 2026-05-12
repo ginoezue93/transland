@@ -131,6 +131,13 @@
     "default": ""
   },
   {
+    "tab": "Etikett & Tagesabschluss",
+    "key": "webhook_token",
+    "label": "Webhook-Token für externen Bordero-Trigger (min. 16 Zeichen, z.B. ein zufälliger String)",
+    "type": "text",
+    "default": ""
+  },
+  {
     "tab": "Verpackungsprozesse",
     "key": "packaging_type_process_52",
     "label": "Prozess 52 – 2. AP Kleinteile/Sonst. Teile",
