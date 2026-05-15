@@ -376,24 +376,21 @@ class PayloadBuilderService
                 $built['sub_packaging_type'] = $this->mapPackagingType($pkg['sub_packaging_type'] ?? 'KT');
             }
 
-            // packages – array of NVE/SSCC barcodes belonging to this position.
-            // Per Zufall spec: "Packstücke je Position (Barcode/NVE)".
-            // At payload-build time we usually don't have the SSCC yet
-            // (Zufall assigns it), so this is normally an empty array.
-            // When a caller pre-fills pkg['sscc'] or pkg['barcodes'] we
-            // include them so round-trip scenarios (e.g. Bordero resubmit)
-            // still work.
-            $barcodes = [];
-            if (!empty($pkg['barcodes']) && is_array($pkg['barcodes'])) {
-                foreach ($pkg['barcodes'] as $bc) {
-                    if (!empty($bc)) {
-                        $barcodes[] = ['barcode' => (string) $bc];
+            // packages — array of NVE/SSCC barcodes belonging to this position.
+            // Per Zufall V2 spec (Seite 13): [{"sscc": "003..."}]
+            // Die SSCC kommt vom Label-Endpoint zurück und wird über
+            // mergeSSCCsIntoPackages in die Position geschrieben.
+            $ssccEntries = [];
+            if (!empty($pkg['ssccs']) && is_array($pkg['ssccs'])) {
+                foreach ($pkg['ssccs'] as $s) {
+                    if (!empty($s)) {
+                        $ssccEntries[] = ['sscc' => (string) $s];
                     }
                 }
             } elseif (!empty($pkg['sscc'])) {
-                $barcodes[] = ['barcode' => (string) $pkg['sscc']];
+                $ssccEntries[] = ['sscc' => (string) $pkg['sscc']];
             }
-            $built['packages'] = $barcodes;
+            $built['packages'] = $ssccEntries;
 
             // dangerous_goods – placeholder until Zufall hazmat spec is
             // integrated. Empty array means "no hazmat".

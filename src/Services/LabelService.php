@@ -99,7 +99,13 @@ class LabelService
     private function mergeSSCCsIntoPackages(array $localPackages, array $apiPackages): array
     {
         foreach ($localPackages as $idx => &$pkg) {
-            if (isset($apiPackages[$idx]['sscc'])) {
+            // V2 actual: position.ssccs[] (array of strings)
+            if (isset($apiPackages[$idx]['ssccs']) && is_array($apiPackages[$idx]['ssccs'])) {
+                $pkg['sscc'] = $apiPackages[$idx]['ssccs'][0] ?? '';
+                $pkg['ssccs'] = $apiPackages[$idx]['ssccs'];
+            }
+            // V2 doc / V1: position.sscc (string)
+            if (empty($pkg['sscc']) && isset($apiPackages[$idx]['sscc'])) {
                 $pkg['sscc'] = $apiPackages[$idx]['sscc'];
             }
         }
