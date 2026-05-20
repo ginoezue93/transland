@@ -121,6 +121,7 @@ class ShippingController extends Controller
                     'amounts',
                     'tags',
                     'properties',
+                    'reference',
                 ]);
 
                 if (!$order || !$order->id) {
@@ -152,20 +153,74 @@ class ShippingController extends Controller
                 // passiert ausschliesslich im Daily-Cron via
                 // ShippingListService::submitDailyShipments().
 
-                // 3. Tags aus dem Auftrag lesen
-                //    Plenty speichert Tags am Auftrag (Order), nicht am
-                //    einzelnen Versandpaket. Die Tags die im Versandcenter
-                //    sichtbar sind, sind die Auftrags-Tags.
+                // 3. Tags lesen — mit Fallback auf Eltern-Auftrag
+                //
+                //    Kundenlogik:
+                //    - Wenn NUR Auftrag (kein Lieferauftrag): Tag am Auftrag
+                //    - Wenn Lieferaufträge existieren: Tag am Lieferauftrag
+                //
+                //    Fallback: Wenn der aktuelle Auftrag (z.B. Lieferauftrag)
+                //    KEINE Tags hat, prüfe den Eltern-Auftrag. Das fängt den
+                //    Fall ab wo Plenty Tags am Lieferauftrag nicht über $with
+                //    lädt, oder der Kunde den Tag doch am Hauptauftrag hat.
+                $orderTypeId = (int)($order->typeId ?? 0);
                 $orderTagNames = $this->collectOrderTagNames($order);
 
+                // Fallback: bei Lieferauftrag (typeId=2) ohne Tags → Eltern-Auftrag prüfen
+                $parentOrderId = 0;
+                if (empty($orderTagNames) && $orderTypeId === 2) {
+                    // Parent-Order-ID aus den Order-References holen
+                    if (!empty($order->originOrderReferences)) {
+                        foreach ($order->originOrderReferences as $ref) {
+                            if (!empty($ref->originOrderId)) {
+                                $parentOrderId = (int)$ref->originOrderId;
+                                break;
+                            }
+                        }
+                    }
+                    // Alternativ: orderReferences prüfen
+                    if ($parentOrderId <= 0 && !empty($order->orderReferences)) {
+                        foreach ($order->orderReferences as $ref) {
+                            if (!empty($ref->originOrderId) && (int)$ref->originOrderId !== $orderId) {
+                                $parentOrderId = (int)$ref->originOrderId;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ($parentOrderId > 0) {
+                        try {
+                            $parentOrder = $this->orderRepository->findOrderById($parentOrderId, ['tags']);
+                            if ($parentOrder) {
+                                $orderTagNames = $this->collectOrderTagNames($parentOrder);
+                                $this->getLogger(__CLASS__)->error('TranslandShipping::register.tagsFromParent', [
+                                    'orderId'       => $orderId,
+                                    'parentOrderId' => $parentOrderId,
+                                    'tagCount'      => count($orderTagNames),
+                                    'tags'          => $orderTagNames,
+                                ]);
+                            }
+                        } catch (\Exception $e) {
+                            $this->getLogger(__CLASS__)->error('TranslandShipping::register.parentLoadFailed', [
+                                'orderId'       => $orderId,
+                                'parentOrderId' => $parentOrderId,
+                                'error'         => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                }
+
                 $this->getLogger(__CLASS__)->error('TranslandShipping::register.tagsDetected', [
-                    'orderId'  => $orderId,
-                    'tagCount' => count($orderTagNames),
-                    'tags'     => $orderTagNames,
+                    'orderId'        => $orderId,
+                    'orderType'      => $orderTypeId === 1 ? 'SalesOrder' : ($orderTypeId === 2 ? 'Lieferauftrag' : 'type_' . $orderTypeId),
+                    'parentOrderId'  => $parentOrderId,
+                    'tagCount'       => count($orderTagNames),
+                    'tags'           => $orderTagNames,
+                    'source'         => $parentOrderId > 0 ? 'parent_order' : 'current_order',
                 ]);
 
-                // 3a. Gefahrstoff-Check
-                $hasHazmat = $this->hasTag($order, self::TAG_GEFAHRSTOFF);
+                // 3a. Gefahrstoff-Check (nutzt gesammelte Tags — auch vom Eltern-Auftrag)
+                $hasHazmat = in_array(self::TAG_GEFAHRSTOFF, $orderTagNames, true);
                 if ($hasHazmat) {
                     $this->getLogger(__CLASS__)->error('TranslandShipping::register.hazmat_detected', [
                         'orderId' => $orderId,
@@ -244,8 +299,19 @@ class ShippingController extends Controller
                 ]);
 
                 // 6. Auftrag als Array aufbereiten
-                $orderArray    = $this->orderToArray($order);
-                $parentOrderId = (int)($order->parentOrderId ?? 0);
+                $orderArray = $this->orderToArray($order);
+
+                // parentOrderId für Bordero-Gruppierung: wurde oben beim
+                // Tag-Fallback ermittelt. Falls dort nicht gesetzt (z.B. bei
+                // Sales Order), versuche es aus den Order-References.
+                if ($parentOrderId <= 0 && !empty($order->originOrderReferences)) {
+                    foreach ($order->originOrderReferences as $ref) {
+                        if (!empty($ref->originOrderId) && (int)$ref->originOrderId !== $orderId) {
+                            $parentOrderId = (int)$ref->originOrderId;
+                            break;
+                        }
+                    }
+                }
 
                 // 7. Label erstellen via Transland API
                 //    PDF statt ZPL — genau wie DHL. PDF funktioniert im

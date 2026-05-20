@@ -199,10 +199,8 @@ class PayloadBuilderService
         ];
     }
 
-    public function buildShippingObjectFromStoredData(array $shipment, string $overridePickupDate = ''): array
+    private function buildShippingObjectFromStoredData(array $shipment, string $pickupDate): array
     {
-        $pickupDate = !empty($overridePickupDate) ? $overridePickupDate : ($shipment['pickup_date'] ?? date('Y-m-d'));
-
         $obj = [
             'shipper_address' => $shipment['shipper_address'] ?? [],
             'consignee_address' => $shipment['consignee_address'] ?? [],
@@ -217,19 +215,16 @@ class PayloadBuilderService
             'positions' => $shipment['packages'] ?? [],
         ];
 
-        // OPTIONEN REINIGEN
         if (!empty($shipment['options']) && is_array($shipment['options'])) {
             $cleanOptions = [];
             foreach ($shipment['options'] as $opt) {
                 $code = (string) ($opt['code'] ?? '');
-
-                // Wir prüfen, ob der Code nur aus Zahlen besteht
-                // Da ctype_digit verboten ist, nutzen wir eine Kombination aus is_numeric und Typ-Check
                 if (!empty($code) && is_numeric($code) && (int) $code > 0) {
-                    $cleanOptions[] = [
-                        'code' => $code,
-                        'text' => (string) ($opt['text'] ?? '')
-                    ];
+                    $entry = ['code' => (int) $code];
+                    if (!empty($opt['text'])) {
+                        $entry['text'] = substr((string) $opt['text'], 0, 35);
+                    }
+                    $cleanOptions[] = $entry;
                 }
             }
             if (!empty($cleanOptions)) {
@@ -237,7 +232,7 @@ class PayloadBuilderService
             }
         }
 
-        if (!empty($shipment['texts'])) {
+        if (!empty($shipment['texts']) && is_array($shipment['texts'])) {
             $obj['texts'] = $shipment['texts'];
         }
 
