@@ -152,7 +152,19 @@ class ShippingController extends Controller
                 // passiert ausschliesslich im Daily-Cron via
                 // ShippingListService::submitDailyShipments().
 
-                // 3. Gefahrstoff-Check
+                // 3. Tags aus dem Auftrag lesen
+                //    Plenty speichert Tags am Auftrag (Order), nicht am
+                //    einzelnen Versandpaket. Die Tags die im Versandcenter
+                //    sichtbar sind, sind die Auftrags-Tags.
+                $orderTagNames = $this->collectOrderTagNames($order);
+
+                $this->getLogger(__CLASS__)->error('TranslandShipping::register.tagsDetected', [
+                    'orderId'  => $orderId,
+                    'tagCount' => count($orderTagNames),
+                    'tags'     => $orderTagNames,
+                ]);
+
+                // 3a. Gefahrstoff-Check
                 $hasHazmat = $this->hasTag($order, self::TAG_GEFAHRSTOFF);
                 if ($hasHazmat) {
                     $this->getLogger(__CLASS__)->error('TranslandShipping::register.hazmat_detected', [
@@ -161,11 +173,7 @@ class ShippingController extends Controller
                     ]);
                 }
 
-                // 3a. NextDay-Tag-Erkennung → Zufall Premium-Service Options
-                //     Die 4 Tags (NextDay, NextDay8, NextDay10, NextDay12)
-                //     werden in buildShipmentOptions() auf die Option-Codes
-                //     250/253/255/257 gemappt. Nur der spezifischste Tag zieht.
-                $orderTagNames = $this->collectOrderTagNames($order);
+                // 3b. NextDay-Tag-Erkennung → Zufall Premium-Service Options
                 $shipmentOptions = $this->payloadBuilder->buildShipmentOptions($orderTagNames);
                 if (!empty($shipmentOptions)) {
                     $this->getLogger(__CLASS__)->error('TranslandShipping::register.nextday_detected', [

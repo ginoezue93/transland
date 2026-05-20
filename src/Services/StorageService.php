@@ -66,50 +66,15 @@ class StorageService
     }
 
     /**
-     * Berechnet das korrekte pickup_date:
-     * - Mo-Do -> nächster Werktag
-     * - Fr/Sa/So -> Montag
+     * Berechnet das pickup_date.
+     * Abholung erfolgt am selben Tag der Anmeldung.
      */
     public static function calcPickupDate(string $fromDate = ''): string
     {
-        // PlentyONE runs on UTC. We need Berlin local time to check if bordero (12:00) has passed.
-        // CET = UTC+1, CEST = UTC+2. We determine DST manually:
-        // DST in Germany: last Sunday of March 02:00 -> last Sunday of October 03:00
-        $utcTs = !empty($fromDate) ? strtotime($fromDate) : time();
-
-        // Calculate DST offset manually using month/day
-        $utcMonth = (int)date('n', $utcTs); // 1-12
-        $utcDay   = (int)date('j', $utcTs); // 1-31
-
-        // Simplified DST check: April-October = CEST (UTC+2), else CET (UTC+1)
-        if ($utcMonth >= 4 && $utcMonth <= 10) {
-            $offsetSeconds = 7200; // CEST = UTC+2
-        } else {
-            $offsetSeconds = 3600; // CET  = UTC+1
+        if (!empty($fromDate)) {
+            return $fromDate;
         }
-
-        $berlinTs = $utcTs + $offsetSeconds;
-
-        $dow  = (int)date('N', $berlinTs); // 1=Mo ... 7=So
-        $hour = (int)date('G', $berlinTs); // 0-23 in Berlin time
-
-        // Bordero geht um 12:00 Berliner Zeit raus.
-        // Vor 12:00 -> Abholung nächster Werktag
-        // Ab  12:00 -> Bordero bereits raus -> Abholung übernächster Werktag
-        $afterBordero = $hour >= 12;
-
-        if ($dow === 5) {
-            $days = $afterBordero ? 4 : 3; // Fr nach 12 -> Di, Fr vor 12 -> Mo
-        } elseif ($dow === 6) {
-            $days = 2; // Sa -> Mo
-        } elseif ($dow === 7) {
-            $days = 1; // So -> Mo
-        } else {
-            $days = $afterBordero ? 2 : 1; // Mo-Do
-        }
-
-        // Use UTC timestamp base for date calculation (adding days is timezone-independent)
-        return date('Y-m-d', strtotime('+' . $days . ' days', $utcTs));
+        return date('Y-m-d');
     }
 
     public function getZplForOrder(int $orderId): string

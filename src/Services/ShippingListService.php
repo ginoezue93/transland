@@ -85,23 +85,8 @@ class ShippingListService
         // komplett sind.
         $pendingShipments = $completeShipments;
 
-        // 1. Aktueller Wochentag (1 = Mo, 5 = Fr, 6 = Sa, 7 = So)
-        $todayN = (int) date('N');
-
-        // 2. Ziel-Datum berechnen (Werktag danach)
-        if ($todayN >= 1 && $todayN <= 4) {
-            // Mo bis Do -> Abholung morgen
-            $borderoDate = date('Y-m-d', strtotime('+1 day'));
-        } elseif ($todayN === 5) {
-            // Freitag -> Abholung Montag (+3 Tage)
-            $borderoDate = date('Y-m-d', strtotime('+3 days'));
-        } elseif ($todayN === 6) {
-            // Samstag -> Abholung Montag (+2 Tage)
-            $borderoDate = date('Y-m-d', strtotime('+2 days'));
-        } else {
-            // Sonntag -> Abholung Montag (+1 Tag)
-            $borderoDate = date('Y-m-d', strtotime('+1 day'));
-        }
+        // Pickup-Datum = heute (Abholung am selben Tag der Anmeldung)
+        $borderoDate = date('Y-m-d');
 
         $this->getLogger(__METHOD__)->info('TranslandShipping::bordero.date_calculated', [
             'today' => date('l'),
@@ -109,8 +94,10 @@ class ShippingListService
         ]);
         $grouped = [];
         foreach ($pendingShipments as $shipment) {
-            $date = $shipment['pickup_date'] ?? $borderoDate;
-            $grouped[$date][] = $shipment;
+            // Immer den frisch berechneten borderoDate verwenden.
+            // Der gespeicherte pickup_date von der Registrierung ist
+            // irrelevant — der Bordero bestimmt das Abholdatum.
+            $grouped[$borderoDate][] = $shipment;
         }
 
         $allSubmittedOrderIds = [];

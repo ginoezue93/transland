@@ -193,19 +193,21 @@ class PayloadBuilderService
             'list_id' => $listId,
             'pickup_date' => $pickupDate,
             'shippings' => array_map(
-                fn(array $shipment) => $this->buildShippingObjectFromStoredData($shipment),
+                fn(array $shipment) => $this->buildShippingObjectFromStoredData($shipment, $pickupDate),
                 $shipments
             ),
         ];
     }
 
-    public function buildShippingObjectFromStoredData(array $shipment): array
+    public function buildShippingObjectFromStoredData(array $shipment, string $overridePickupDate = ''): array
     {
+        $pickupDate = !empty($overridePickupDate) ? $overridePickupDate : ($shipment['pickup_date'] ?? date('Y-m-d'));
+
         $obj = [
             'shipper_address' => $shipment['shipper_address'] ?? [],
             'consignee_address' => $shipment['consignee_address'] ?? [],
             'loading_address' => $shipment['loading_address'] ?? $shipment['shipper_address'] ?? [],
-            'pickup_date' => $shipment['pickup_date'] ?? date('Y-m-d'),
+            'pickup_date' => $pickupDate,
             'procurement' => $shipment['procurement'] ?? false,
             'franking' => $shipment['franking'] ?? '1',
             'reference' => $shipment['reference'] ?? '',
