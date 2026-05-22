@@ -38,7 +38,7 @@ class ShippingController extends Controller
     use Loggable;
 
     /** Versandprofil-IDs die als Speditionsversand gelten */
-    private const SPEDITION_PROFILE_IDS = [8, 95, 122, 124];
+    private const SPEDITION_PROFILE_IDS = [8, 95, 111, 122, 124];
 
     /** Ziel-Versandprofil nach Label-Druck */
     private const TARGET_SHIPPING_PROFILE_ID = 111;
