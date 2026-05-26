@@ -224,17 +224,41 @@ class ShippingListService
         $completeShipments = [];
 
         foreach ($pendingByFamily as $familyId => $familyShipments) {
-            // Required members = alle Spedition-Mitglieder der Familie bei Plenty
-            // (nicht storniert). Das sind die, die ein Label haben MUESSEN.
+            // Einzelaufträge (parent_order_id = 0) brauchen keine
+            // Familie-Prüfung — direkt durchlassen.
+            $isStandalone = true;
+            foreach ($familyShipments as $s) {
+                if ((int)($s['parent_order_id'] ?? 0) > 0) {
+                    $isStandalone = false;
+                    break;
+                }
+            }
+
+            if ($isStandalone) {
+                foreach ($familyShipments as $s) {
+                    $completeShipments[] = $s;
+                }
+                continue;
+            }
+
+            // Nur bei echten Familien (Lieferaufträge) prüfen ob alle
+            // Geschwister registriert sind.
             $requiredOrderIds = $this->getRequiredFamilyMemberIds($familyId);
 
             if (empty($requiredOrderIds)) {
                 // Familie konnte nicht ermittelt werden (z.B. Plenty-Fehler beim
-                // Laden). Safest: als unvollstaendig behandeln und im Log laut sein.
+                // Laden, oder Einzelauftrag ohne Lieferaufträge).
+                // NICHT blockieren — Sendungen trotzdem senden. Lieber eine
+                // unvollständige Familie senden als den gesamten Bordero zu
+                // blockieren.
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.familyUnknown', [
                     'family_id' => $familyId,
-                    'note'      => 'Konnte Familie-Mitglieder nicht aus Plenty laden – Familie wird als unvollstaendig behandelt und bleibt pending.',
+                    'count'     => count($familyShipments),
+                    'note'      => 'Familie konnte nicht geprueft werden. Sendungen werden trotzdem gesendet.',
                 ]);
+                foreach ($familyShipments as $s) {
+                    $completeShipments[] = $s;
+                }
                 continue;
             }
 
