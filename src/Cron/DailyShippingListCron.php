@@ -35,9 +35,10 @@ class DailyShippingListCron extends CronHandler
             return;
         }
 
-        // Nur um 12:00-12:14 ausführen.
+        // Nur um 12:00-12:14 oder 16:00-16:14 ausführen.
         // Server läuft bereits auf Berliner Zeit — kein Offset nötig.
-        if ($hour !== 12 || $min > 14) {
+        $isTime = ($hour === 12 || $hour === 16) && $min <= 14;
+        if (!$isTime) {
             return;
         }
 
