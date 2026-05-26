@@ -4,6 +4,7 @@ namespace TranslandShipping\Services;
 
 use Plenty\Plugin\Log\Loggable;
 use Plenty\Modules\Order\Contracts\OrderRepositoryContract;
+use Plenty\Modules\Order\Shipping\Package\Contracts\OrderShippingPackageRepositoryContract;
 
 class ShippingListService
 {
@@ -13,7 +14,7 @@ class ShippingListService
      * Versandprofil-IDs die als Speditionsversand gelten.
      * Muss synchron mit ShippingController::SPEDITION_PROFILE_IDS gehalten werden.
      */
-    private const SPEDITION_PROFILE_IDS = [8, 95, 122, 124];
+    private const SPEDITION_PROFILE_IDS = [8, 95, 111, 122, 124];
 
     /**
      * Auftragsstatus-Werte, die als "storniert" gelten und bei der
@@ -26,17 +27,20 @@ class ShippingListService
     private PayloadBuilderService $payloadBuilder;
     private StorageService $storageService;
     private OrderRepositoryContract $orderRepository;
+    private OrderShippingPackageRepositoryContract $orderShippingPackage;
 
     public function __construct(
         TranslandApiService $apiService,
         PayloadBuilderService $payloadBuilder,
         StorageService $storageService,
-        OrderRepositoryContract $orderRepository
+        OrderRepositoryContract $orderRepository,
+        OrderShippingPackageRepositoryContract $orderShippingPackage
     ) {
         $this->apiService = $apiService;
         $this->payloadBuilder = $payloadBuilder;
         $this->storageService = $storageService;
         $this->orderRepository = $orderRepository;
+        $this->orderShippingPackage = $orderShippingPackage;
     }
 
     /**
@@ -107,7 +111,17 @@ class ShippingListService
 
         foreach ($grouped as $date => $shipments) {
             $listId = 'LIST-' . str_replace('-', '', $date) . '-' . time();
-            $borderoPayload = $this->payloadBuilder->buildBorderoPayload($shipments, $date, $listId);
+
+            // SSCC-Enrichment: Wenn gespeicherte Positionen leere packages[]
+            // haben (z.B. von Registrierungen vor v6.7.5), die SSCC aus dem
+            // OrderShippingPackage (Feld packageNumber) nachlesen.
+            $enrichedShipments = [];
+            foreach ($shipments as $shipment) {
+                $shipment = $this->enrichPositionsWithSSCCs($shipment);
+                $enrichedShipments[] = $shipment;
+            }
+
+            $borderoPayload = $this->payloadBuilder->buildBorderoPayload($enrichedShipments, $date, $listId);
 
             try {
                 $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
@@ -381,5 +395,82 @@ class ShippingListService
         // Shipping profile must be a Spedition profile
         $profileId = (int) ($order->shippingProfileId ?? 0);
         return in_array($profileId, self::SPEDITION_PROFILE_IDS, true);
+    }
+
+    /**
+     * Prüft ob die gespeicherten Positionen eines Shipments leere packages[]
+     * Arrays haben und füllt sie mit SSCCs aus dem OrderShippingPackage.
+     *
+     * Fallback für Registrierungen vor v6.7.5 wo der SSCC-Merge noch
+     * nicht funktionierte.
+     */
+    private function enrichPositionsWithSSCCs(array $shipment): array
+    {
+        $positions = $shipment['packages'] ?? [];
+        $orderId   = (int)($shipment['order_id'] ?? 0);
+
+        if (empty($positions) || $orderId <= 0) {
+            return $shipment;
+        }
+
+        // Prüfe ob irgendeine Position leere packages hat
+        $needsEnrichment = false;
+        foreach ($positions as $pos) {
+            if (empty($pos['packages']) || !is_array($pos['packages'])) {
+                $needsEnrichment = true;
+                break;
+            }
+            // Auch prüfen ob packages zwar da aber leer sind
+            $hasSSCC = false;
+            foreach ($pos['packages'] as $pkg) {
+                if (!empty($pkg['sscc'])) {
+                    $hasSSCC = true;
+                    break;
+                }
+            }
+            if (!$hasSSCC) {
+                $needsEnrichment = true;
+                break;
+            }
+        }
+
+        if (!$needsEnrichment) {
+            return $shipment;
+        }
+
+        // SSCCs aus OrderShippingPackage nachlesen
+        try {
+            $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+            $ssccs = [];
+            foreach ($plentyPackages as $pkg) {
+                if (!empty($pkg->packageNumber)) {
+                    $ssccs[] = (string)$pkg->packageNumber;
+                }
+            }
+
+            if (!empty($ssccs)) {
+                // SSCCs auf Positionen verteilen (1:1 Mapping nach Index)
+                foreach ($positions as $idx => &$pos) {
+                    if (isset($ssccs[$idx])) {
+                        $pos['packages'] = [['sscc' => $ssccs[$idx]]];
+                    }
+                }
+
+                $shipment['packages'] = $positions;
+
+                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.ssccEnriched', [
+                    'orderId'   => $orderId,
+                    'ssccCount' => count($ssccs),
+                    'ssccs'     => $ssccs,
+                ]);
+            }
+        } catch (\Exception $e) {
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.ssccEnrichFailed', [
+                'orderId' => $orderId,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        return $shipment;
     }
 }
