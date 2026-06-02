@@ -187,39 +187,15 @@ class PayloadBuilderService
     {
         $settings = $this->settingsService->getSettings();
 
-        // Sendungen nach Familie gruppieren.
-        // Alle Lieferaufträge mit demselben parent_order_id = EINE Sendung
-        // im Bordero mit zusammengefassten Positionen.
-        // Einzelaufträge (parent_order_id = 0) = eigene Sendung.
-        $families = [];
-        foreach ($shipments as $shipment) {
-            $parentId = (int)($shipment['parent_order_id'] ?? 0);
-            $orderId  = (int)($shipment['order_id'] ?? 0);
-            $familyId = $parentId > 0 ? $parentId : $orderId;
-            $families[$familyId][] = $shipment;
-        }
-
-        $shippingObjects = [];
-        foreach ($families as $familyId => $familyShipments) {
-            if (count($familyShipments) === 1) {
-                // Einzelauftrag oder einzelner Lieferauftrag
-                $shippingObjects[] = $this->buildShippingObjectFromStoredData(
-                    $familyShipments[0], $pickupDate
-                );
-            } else {
-                // Familie: alle Positionen zusammenfassen
-                $shippingObjects[] = $this->buildFamilyShippingObject(
-                    $familyShipments, $pickupDate, $familyId
-                );
-            }
-        }
-
         return [
             'customer_id' => $settings['plenty_customer_id_at_transland'],
             'branch' => 'TRANSL1',
             'list_id' => $listId,
             'pickup_date' => $pickupDate,
-            'shippings' => $shippingObjects,
+            'shippings' => array_map(
+                fn(array $shipment) => $this->buildShippingObjectFromStoredData($shipment, $pickupDate),
+                $shipments
+            ),
         ];
     }
 

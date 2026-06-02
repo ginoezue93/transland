@@ -123,6 +123,37 @@ class ShippingListService
 
             $borderoPayload = $this->payloadBuilder->buildBorderoPayload($enrichedShipments, $date, $listId);
 
+            // Debug: Bordero-Payload loggen um Fehler bei Zufall zu diagnostizieren
+            $shippingsSummary = [];
+            foreach (($borderoPayload['shippings'] ?? []) as $sIdx => $ship) {
+                $posInfo = [];
+                foreach (($ship['positions'] ?? []) as $pIdx => $pos) {
+                    $pkgSsccs = [];
+                    foreach (($pos['packages'] ?? []) as $pkg) {
+                        $pkgSsccs[] = $pkg['sscc'] ?? 'MISSING';
+                    }
+                    $posInfo[] = [
+                        'type'     => $pos['packaging_type'] ?? '?',
+                        'weight'   => $pos['weight_gr'] ?? 0,
+                        'packages' => $pkgSsccs,
+                    ];
+                }
+                $shippingsSummary[] = [
+                    'index'     => $sIdx,
+                    'reference' => $ship['reference'] ?? '?',
+                    'weight_gr' => $ship['weight_gr'] ?? 0,
+                    'posCount'  => count($ship['positions'] ?? []),
+                    'positions' => $posInfo,
+                ];
+            }
+
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.payloadDebug', [
+                'list_id'        => $listId,
+                'pickup_date'    => $date,
+                'shippingCount'  => count($borderoPayload['shippings'] ?? []),
+                'shippings'      => $shippingsSummary,
+            ]);
+
             try {
                 $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
             } catch (\Throwable $apiEx) {
@@ -139,7 +170,9 @@ class ShippingListService
 
             if ($apiResult !== 'ok') {
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.unexpectedResult', [
-                    'list_id' => $listId
+                    'list_id'       => $listId,
+                    'apiResult'     => $apiResult,
+                    'shippingCount' => count($borderoPayload['shippings'] ?? []),
                 ]);
                 continue;
             }
