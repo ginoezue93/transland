@@ -313,12 +313,13 @@ class ShippingController extends Controller
                     }
                 }
 
-                // 7. Label erstellen via Transland API
-                //    PDF statt ZPL — genau wie DHL. PDF funktioniert im
-                //    Versandcenter (Vorschau + Download), in plentyBase (Druck
-                //    über Windows-Druckertreiber) und auf dem Zebra (via Treiber).
-                //    ZPL wäre native Zebra-Qualität, crasht aber Plenty's UI
-                //    weil das Versandcenter labelBase64 als PDF erwartet.
+                // 7. Label erstellen via Transland API — EIN Call für alle Pakete
+                //    Zufall nummeriert die Labels automatisch (1/3, 2/3, 3/3)
+                //    und gibt ein Sammel-PDF zurück.
+                //
+                //    labelBase64 wird NUR auf dem ERSTEN Paket gespeichert
+                //    und NUR im ersten shipmentItem zurückgegeben. So druckt
+                //    plentyBase das Sammel-PDF genau einmal.
                 $result = $this->labelService->createLabelForOrder($orderArray, $packages, 'PDF', $shipmentOptions);
 
                 if (empty($result['label_data'])) {
@@ -328,11 +329,7 @@ class ShippingController extends Controller
                     continue;
                 }
 
-                // 8. PDF in PlentyONE S3 Storage speichern
-                //    Base64 dekodieren → rohes PDF → S3 upload.
-                //    publicVisible=true für eine einfache öffentliche URL
-                //    (signierte URLs scheitern auf manchen Instanzen wegen
-                //    leerem AWS Access Key).
+                // 8. PDF in S3 Storage speichern (ein Sammel-PDF für alle Pakete)
                 $sscc        = $result['sscc_list'][0] ?? ('transland-' . $orderId);
                 $storageKey  = $sscc . '.pdf';
                 $rawPdf      = base64_decode($result['label_data']);
@@ -342,48 +339,42 @@ class ShippingController extends Controller
                     $rawPdf,
                     true
                 );
-
-                // Resolve a real label URL that plentyBase can fetch + print.
-                // Tries multiple Storage API methods because the exact signature
-                // varies between Plenty Stable releases.
                 $labelUrl = $this->resolveLabelUrl('TranslandShipping', $storageKey, $storageObject);
 
-                // 9. SSCC als Paketnummer + Label in Versandcenter-Pakete schreiben
-                //
-                // Wichtig: Die Feldnamen müssen exakt dem OrderShippingPackage-
-                // Model entsprechen (Stable7 Doku):
-                //   packageNumber  = SSCC/Paketnummer
-                //   labelPath      = URL zum Label (für plentyBase-Druck)
-                //   labelBase64    = base64-kodiertes PDF (für Versandcenter-Anzeige)
-                //
-                // Genau wie DHL: labelBase64 mit PDF → Versandcenter zeigt
-                // Vorschau, Download und Drucken-Button.
+                // 9. SSCC + Label auf Pakete schreiben
+                //    labelBase64 NUR auf dem ersten Paket → plentyBase druckt
+                //    das Sammel-PDF genau einmal mit allen Labels (1/3, 2/3, 3/3).
                 $shipmentItems = [];
                 foreach ($plentyPackages as $idx => $plentyPkg) {
                     $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
+                    $isFirst = ($idx === 0);
 
-                    // Printing-Sub-Aktion in plentyBase liest labelBase64
-                    // direkt vom OrderShippingPackage. Ohne labelBase64 am
-                    // Paket kommt "No documents are available".
-                    //
-                    // WICHTIG: getLabels lädt labelBase64 NICHT mit, um
-                    // Memory-Probleme bei Massenabfragen zu vermeiden.
-                    // Der Memory-Crash von vorher kam von angesammelten
-                    // alten Paketen, nicht von einem einzelnen 462KB PDF.
+                    $updateData = [
+                        'packageNumber' => $pkgSscc,
+                        'labelPath'     => $labelUrl,
+                    ];
+
+                    // Sammel-PDF nur auf erstem Paket
+                    if ($isFirst) {
+                        $updateData['labelBase64'] = $result['label_data'];
+                    }
+
                     $this->orderShippingPackage->updateOrderShippingPackage(
                         $plentyPkg->id,
-                        [
-                            'packageNumber' => $pkgSscc,
-                            'labelPath'     => $labelUrl,
-                            'labelBase64'   => $result['label_data'],
-                        ]
+                        $updateData
                     );
 
-                    $shipmentItems[] = [
+                    $item = [
                         'labelUrl'       => $labelUrl,
                         'shipmentNumber' => $pkgSscc,
-                        'labelBase64'    => $result['label_data'],
                     ];
+
+                    // labelBase64 nur im ersten Response-Item → 1x drucken
+                    if ($isFirst) {
+                        $item['labelBase64'] = $result['label_data'];
+                    }
+
+                    $shipmentItems[] = $item;
                 }
 
                 // 10. ShippingInformation speichern (PlentyONE Standard)
@@ -404,7 +395,7 @@ class ShippingController extends Controller
                     'orderId'       => $orderId,
                     'parentOrderId' => $parentOrderId,
                     'ssccList'      => $result['sscc_list'],
-                    'storageKey'    => $storageObject->key ?? $storageKey,
+                    'packageCount'  => count($shipmentItems),
                     'hasHazmat'     => $hasHazmat ? 'JA' : 'NEIN',
                 ]);
 
