@@ -35,8 +35,8 @@ class DailyShippingListCron extends CronHandler
             return;
         }
 
-        // Nur um 06:00-06:14, 12:00-12:14, 15:15-15:44 oder 16:00-16:14 ausführen.
-        $isTime = (($hour === 6 || $hour === 12 || $hour === 16) && $min <= 14) || ($hour === 15 && $min >= 15 && $min <= 44);
+        // Nur um 06:00-06:14 oder 12:00-12:14 ausführen.
+        $isTime = ($hour === 6 || $hour === 12) && $min <= 14;
         if (!$isTime) {
             return;
         }
