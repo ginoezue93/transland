@@ -118,10 +118,73 @@ class ShippingListService
             $enrichedShipments = [];
             foreach ($shipments as $shipment) {
                 $shipment = $this->enrichPositionsWithSSCCs($shipment);
+
+                // Wenn Positionen komplett leer sind, versuche sie aus den
+                // OrderShippingPackages neu aufzubauen (alte Registrierungen
+                // vor v6.6.0 hatten keine Positionen gespeichert).
+                if (empty($shipment['packages']) || !is_array($shipment['packages'])) {
+                    $shipment = $this->rebuildPositionsFromPackages($shipment);
+                }
+
+                // Sendungen ohne Positionen überspringen — Zufall braucht
+                // mindestens 1 Position pro Sendung.
+                $positions = $shipment['packages'] ?? [];
+                if (empty($positions)) {
+                    $orderId = (int)($shipment['order_id'] ?? 0);
+                    $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.skippedNoPositions', [
+                        'orderId'   => $orderId,
+                        'reference' => $shipment['reference'] ?? '?',
+                        'note'      => 'Sendung hat keine Positionen und wird uebersprungen.',
+                    ]);
+                    // Trotzdem als submitted markieren damit sie nicht endlos pending bleibt
+                    if ($orderId > 0) {
+                        $allSubmittedOrderIds[] = $orderId;
+                    }
+                    continue;
+                }
+
                 $enrichedShipments[] = $shipment;
             }
 
+            if (empty($enrichedShipments)) {
+                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.allSkipped', [
+                    'note' => 'Alle Sendungen hatten leere Positionen. Kein Bordero gesendet.',
+                ]);
+                continue;
+            }
+
             $borderoPayload = $this->payloadBuilder->buildBorderoPayload($enrichedShipments, $date, $listId);
+
+            // Debug: Bordero-Payload loggen um Fehler bei Zufall zu diagnostizieren
+            $shippingsSummary = [];
+            foreach (($borderoPayload['shippings'] ?? []) as $sIdx => $ship) {
+                $posInfo = [];
+                foreach (($ship['positions'] ?? []) as $pIdx => $pos) {
+                    $pkgSsccs = [];
+                    foreach (($pos['packages'] ?? []) as $pkg) {
+                        $pkgSsccs[] = $pkg['sscc'] ?? 'MISSING';
+                    }
+                    $posInfo[] = [
+                        'type'     => $pos['packaging_type'] ?? '?',
+                        'weight'   => $pos['weight_gr'] ?? 0,
+                        'packages' => $pkgSsccs,
+                    ];
+                }
+                $shippingsSummary[] = [
+                    'index'     => $sIdx,
+                    'reference' => $ship['reference'] ?? '?',
+                    'weight_gr' => $ship['weight_gr'] ?? 0,
+                    'posCount'  => count($ship['positions'] ?? []),
+                    'positions' => $posInfo,
+                ];
+            }
+
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.payloadDebug', [
+                'list_id'        => $listId,
+                'pickup_date'    => $date,
+                'shippingCount'  => count($borderoPayload['shippings'] ?? []),
+                'shippings'      => $shippingsSummary,
+            ]);
 
             try {
                 $apiResponse = $this->apiService->submitShippingList($borderoPayload, $returnList);
@@ -139,7 +202,9 @@ class ShippingListService
 
             if ($apiResult !== 'ok') {
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.unexpectedResult', [
-                    'list_id' => $listId
+                    'list_id'       => $listId,
+                    'apiResult'     => $apiResult,
+                    'shippingCount' => count($borderoPayload['shippings'] ?? []),
                 ]);
                 continue;
             }
@@ -413,14 +478,12 @@ class ShippingListService
             return $shipment;
         }
 
-        // Prüfe ob irgendeine Position leere packages hat
         $needsEnrichment = false;
         foreach ($positions as $pos) {
             if (empty($pos['packages']) || !is_array($pos['packages'])) {
                 $needsEnrichment = true;
                 break;
             }
-            // Auch prüfen ob packages zwar da aber leer sind
             $hasSSCC = false;
             foreach ($pos['packages'] as $pkg) {
                 if (!empty($pkg['sscc'])) {
@@ -438,7 +501,6 @@ class ShippingListService
             return $shipment;
         }
 
-        // SSCCs aus OrderShippingPackage nachlesen
         try {
             $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
             $ssccs = [];
@@ -449,7 +511,6 @@ class ShippingListService
             }
 
             if (!empty($ssccs)) {
-                // SSCCs auf Positionen verteilen (1:1 Mapping nach Index)
                 foreach ($positions as $idx => &$pos) {
                     if (isset($ssccs[$idx])) {
                         $pos['packages'] = [['sscc' => $ssccs[$idx]]];
@@ -466,6 +527,99 @@ class ShippingListService
             }
         } catch (\Exception $e) {
             $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.ssccEnrichFailed', [
+                'orderId' => $orderId,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        return $shipment;
+    }
+
+    /**
+     * Baut Positionen komplett neu auf aus den OrderShippingPackages.
+     * Fallback für alte Registrierungen wo keine Positionen gespeichert wurden.
+     */
+    private function rebuildPositionsFromPackages(array $shipment): array
+    {
+        $orderId = (int)($shipment['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            return $shipment;
+        }
+
+        try {
+            $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
+            if (empty($plentyPackages)) {
+                return $shipment;
+            }
+
+            /** @var \Plenty\Modules\Order\Shipping\PackageType\Contracts\ShippingPackageTypeRepositoryContract $packageTypeRepo */
+            $packageTypeRepo = pluginApp(\Plenty\Modules\Order\Shipping\PackageType\Contracts\ShippingPackageTypeRepositoryContract::class);
+
+            $positions = [];
+            foreach ($plentyPackages as $pkg) {
+                $packageTypeId = (int)($pkg->packageId ?? 0);
+                $typeName = 'PA';
+                $lengthCm = 0;
+                $widthCm  = 0;
+                $heightCm = 0;
+
+                if ($packageTypeId > 0) {
+                    try {
+                        $packageType = $packageTypeRepo->findShippingPackageTypeById($packageTypeId);
+                        if ($packageType) {
+                            $rawName  = trim((string)($packageType->name ?? ''));
+                            $lengthCm = (int)($packageType->length ?? 0);
+                            $widthCm  = (int)($packageType->width  ?? 0);
+                            $heightCm = (int)($packageType->height ?? 0);
+
+                            // Zufall-Code extrahieren (z.B. KP_Europalette → KP)
+                            if ($rawName !== '' && strpos($rawName, '_') !== false) {
+                                $prefix = substr($rawName, 0, strpos($rawName, '_'));
+                                $prefix = preg_replace('/[0-9]+$/', '', $prefix);
+                                if ($prefix !== '' && $prefix !== null) {
+                                    $typeName = strtoupper($prefix);
+                                }
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // PackageType nicht gefunden — default PA
+                    }
+                }
+
+                $sscc = !empty($pkg->packageNumber) ? (string)$pkg->packageNumber : '';
+                $weightGr = (int)($pkg->weight ?? 0);
+
+                $pos = [
+                    'quantity'       => 1,
+                    'content'        => 'Waren',
+                    'packaging_type' => $typeName,
+                    'length_cm'      => $lengthCm,
+                    'width_cm'       => $widthCm,
+                    'height_cm'      => $heightCm,
+                    'weight_gr'      => $weightGr,
+                    'reference'      => $shipment['reference'] ?? '',
+                    'packages'       => [],
+                    'dangerous_goods' => [],
+                ];
+
+                if ($sscc !== '') {
+                    $pos['packages'] = [['sscc' => $sscc]];
+                }
+
+                $positions[] = $pos;
+            }
+
+            if (!empty($positions)) {
+                $shipment['packages'] = $positions;
+
+                $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.positionsRebuilt', [
+                    'orderId'  => $orderId,
+                    'posCount' => count($positions),
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.rebuildFailed', [
                 'orderId' => $orderId,
                 'error'   => $e->getMessage(),
             ]);

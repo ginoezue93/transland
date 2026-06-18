@@ -187,16 +187,107 @@ class PayloadBuilderService
     {
         $settings = $this->settingsService->getSettings();
 
+        // Sendungen nach Familie gruppieren.
+        $families = [];
+        foreach ($shipments as $shipment) {
+            $parentId = (int)($shipment['parent_order_id'] ?? 0);
+            $orderId  = (int)($shipment['order_id'] ?? 0);
+            $familyId = $parentId > 0 ? $parentId : $orderId;
+            $families[$familyId][] = $shipment;
+        }
+
+        $shippingObjects = [];
+        foreach ($families as $familyId => $familyShipments) {
+            if (count($familyShipments) === 1) {
+                $shippingObjects[] = $this->buildShippingObjectFromStoredData(
+                    $familyShipments[0], $pickupDate
+                );
+            } else {
+                $shippingObjects[] = $this->buildFamilyShippingObject(
+                    $familyShipments, $pickupDate, $familyId
+                );
+            }
+        }
+
         return [
             'customer_id' => $settings['plenty_customer_id_at_transland'],
             'branch' => 'TRANSL1',
             'list_id' => $listId,
             'pickup_date' => $pickupDate,
-            'shippings' => array_map(
-                fn(array $shipment) => $this->buildShippingObjectFromStoredData($shipment, $pickupDate),
-                $shipments
-            ),
+            'shippings' => $shippingObjects,
         ];
+    }
+
+    private function buildFamilyShippingObject(array $familyShipments, string $pickupDate, int $familyId): array
+    {
+        $first = $familyShipments[0];
+
+        $allPositions  = [];
+        $totalWeightGr = 0;
+        $totalValue    = 0.0;
+        $allOptions    = [];
+        $allTexts      = [];
+
+        foreach ($familyShipments as $shipment) {
+            foreach (($shipment['packages'] ?? []) as $pos) {
+                $allPositions[] = $pos;
+            }
+            $totalWeightGr += (int)($shipment['weight_gr'] ?? 0);
+            $totalValue    += (float)($shipment['value'] ?? 0);
+
+            if (!empty($shipment['options']) && is_array($shipment['options'])) {
+                foreach ($shipment['options'] as $opt) {
+                    $code = (string)($opt['code'] ?? '');
+                    if (!empty($code) && is_numeric($code) && (int)$code > 0) {
+                        $allOptions[$code] = $opt;
+                    }
+                }
+            }
+
+            if (!empty($shipment['texts']) && is_array($shipment['texts'])) {
+                foreach ($shipment['texts'] as $txt) {
+                    if (!empty($txt) && is_string($txt)) {
+                        $allTexts[] = $txt;
+                    }
+                }
+            }
+        }
+
+        $obj = [
+            'shipper_address'  => $first['shipper_address'] ?? [],
+            'consignee_address' => $first['consignee_address'] ?? [],
+            'loading_address'  => $first['loading_address'] ?? $first['shipper_address'] ?? [],
+            'pickup_date'      => $pickupDate,
+            'procurement'      => $first['procurement'] ?? false,
+            'franking'         => $first['franking'] ?? '1',
+            'reference'        => (string)$familyId,
+            'shipping_value'   => round($totalValue, 2),
+            'value_currency'   => $first['value_currency'] ?? 'EUR',
+            'weight_gr'        => $totalWeightGr,
+            'positions'        => $allPositions,
+        ];
+
+        $cleanOptions = [];
+        foreach ($allOptions as $opt) {
+            $code = (string)($opt['code'] ?? '');
+            if (!empty($code)) {
+                $entry = ['code' => (int)$code];
+                if (!empty($opt['text'])) {
+                    $entry['text'] = substr((string)$opt['text'], 0, 35);
+                }
+                $cleanOptions[] = $entry;
+            }
+        }
+        if (!empty($cleanOptions)) {
+            $obj['options'] = $cleanOptions;
+        }
+
+        $uniqueTexts = array_values(array_unique($allTexts));
+        if (!empty($uniqueTexts)) {
+            $obj['texts'] = array_slice($uniqueTexts, 0, 6);
+        }
+
+        return $obj;
     }
 
     private function buildShippingObjectFromStoredData(array $shipment, string $pickupDate): array
@@ -420,13 +511,14 @@ class PayloadBuilderService
         $options = [];
 
         $delivery = $order['deliveryAddress'] ?? [];
-        $phone = $delivery['phone'] ?? '';
         $ref = !empty($order['externalOrderId']) ? $order['externalOrderId'] : (string) ($order['id'] ?? '');
 
-        // 101: Telefonavisierung wenn Telefonnummer vorhanden (code als Integer laut Doku)
-        if (!empty($phone)) {
-            $options[] = ['code' => 101, 'text' => $phone];
+        // 101: Telefonavisierung — IMMER setzen (pauschal pro Kundenanforderung)
+        $phone = $delivery['phone'] ?? '';
+        if (empty($phone)) {
+            $phone = $delivery['name1'] ?? 'siehe Lieferschein';
         }
+        $options[] = ['code' => 101, 'text' => substr((string)$phone, 0, 35)];
 
         // 502: Referenznummer immer setzen (code als Integer laut Doku)
         if (!empty($ref)) {
@@ -455,7 +547,18 @@ class PayloadBuilderService
     {
         foreach (($order['amounts'] ?? []) as $amount) {
             if (($amount['isNet'] ?? false) === false) {
-                return round((float)($amount['invoiceTotal'] ?? 0), 2);
+                $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
+                if ($val > 0) {
+                    return $val;
+                }
+            }
+        }
+        // Fallback: auch Netto-Betrag prüfen (manche Lieferaufträge
+        // haben nur einen Netto-Eintrag)
+        foreach (($order['amounts'] ?? []) as $amount) {
+            $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
+            if ($val > 0) {
+                return $val;
             }
         }
         return 0.0;

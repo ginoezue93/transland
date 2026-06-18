@@ -53,10 +53,10 @@ class LabelService
             ? (string)$order['externalOrderId']
             : (string)$orderId;
 
-        // Options: Standard-Options wenn keine übergeben
-        $finalOptions = !empty($options)
-            ? $options
-            : $this->payloadBuilder->buildDefaultOptions($order);
+        // Options: Default-Options (Avisierung 101, Referenz 502) IMMER dazu,
+        // plus tag-basierte Options (NextDay etc.) wenn vorhanden.
+        $defaultOptions = $this->payloadBuilder->buildDefaultOptions($order);
+        $finalOptions = array_merge($defaultOptions, $options);
 
         $fullShipmentData = [
             'order_id'          => $orderId,
