@@ -821,6 +821,8 @@ class ShippingController extends Controller
         foreach (($order->amounts ?? []) as $amount) {
             $amounts[] = [
                 'isNet'        => $amount->isNet        ?? false,
+                'netTotal'     => $amount->netTotal     ?? 0,
+                'grossTotal'   => $amount->grossTotal   ?? 0,
                 'invoiceTotal' => $amount->invoiceTotal ?? 0,
                 'currency'     => $amount->currency     ?? 'EUR',
             ];

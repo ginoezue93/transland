@@ -545,16 +545,29 @@ class PayloadBuilderService
 
     private function getOrderValue(array $order): float
     {
+        // Warenwert NETTO verwenden (für Zufall Versicherungswert).
+        // Plenty OrderAmount:
+        //   netTotal     = Warenwert netto (nur Waren, ohne Versand/MwSt)
+        //   invoiceTotal = Rechnungsbetrag (inkl. Versand, MwSt)
+        //
+        // isNet=true → Netto-Eintrag, isNet=false → Brutto-Eintrag
+        // Wir nehmen netTotal vom Netto-Eintrag = "Warenwert netto" aus Plenty.
         foreach (($order['amounts'] ?? []) as $amount) {
-            if (($amount['isNet'] ?? false) === false) {
-                $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
+            if (($amount['isNet'] ?? false) === true) {
+                $val = round((float)($amount['netTotal'] ?? 0), 2);
                 if ($val > 0) {
                     return $val;
                 }
             }
         }
-        // Fallback: auch Netto-Betrag prüfen (manche Lieferaufträge
-        // haben nur einen Netto-Eintrag)
+        // Fallback 1: netTotal vom Brutto-Eintrag
+        foreach (($order['amounts'] ?? []) as $amount) {
+            $val = round((float)($amount['netTotal'] ?? 0), 2);
+            if ($val > 0) {
+                return $val;
+            }
+        }
+        // Fallback 2: invoiceTotal (besser als 0)
         foreach (($order['amounts'] ?? []) as $amount) {
             $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
             if ($val > 0) {
