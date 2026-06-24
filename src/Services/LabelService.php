@@ -98,17 +98,45 @@ class LabelService
 
     private function mergeSSCCsIntoPackages(array $localPackages, array $apiPackages): array
     {
-        foreach ($localPackages as $idx => &$pkg) {
-            // V2 actual: position.ssccs[] (array of strings)
-            if (isset($apiPackages[$idx]['ssccs']) && is_array($apiPackages[$idx]['ssccs'])) {
-                $pkg['sscc'] = $apiPackages[$idx]['ssccs'][0] ?? '';
-                $pkg['ssccs'] = $apiPackages[$idx]['ssccs'];
+        // Alle SSCCs aus ALLEN API-Positionen sammeln.
+        $allSsccs = [];
+        foreach ($apiPackages as $apiPos) {
+            if (!is_array($apiPos)) {
+                continue;
             }
-            // V2 doc / V1: position.sscc (string)
-            if (empty($pkg['sscc']) && isset($apiPackages[$idx]['sscc'])) {
-                $pkg['sscc'] = $apiPackages[$idx]['sscc'];
+            if (isset($apiPos['ssccs']) && is_array($apiPos['ssccs'])) {
+                foreach ($apiPos['ssccs'] as $s) {
+                    if (!empty($s)) {
+                        $allSsccs[] = (string)$s;
+                    }
+                }
+            }
+            if (isset($apiPos['packages']) && is_array($apiPos['packages'])) {
+                foreach ($apiPos['packages'] as $pkg) {
+                    if (is_array($pkg) && !empty($pkg['sscc'])) {
+                        $allSsccs[] = (string)$pkg['sscc'];
+                    }
+                }
+            }
+            if (!empty($apiPos['sscc'])) {
+                $allSsccs[] = (string)$apiPos['sscc'];
             }
         }
+        $allSsccs = array_values(array_unique($allSsccs));
+
+        // Eine Sendung = eine SSCC für ALLE Positionen.
+        // Wenn Zufall nur 1 SSCC zurückgibt (normal), bekommen alle
+        // Positionen dieselbe SSCC. Bei mehreren SSCCs verteilen nach Index.
+        $primarySscc = $allSsccs[0] ?? '';
+
+        foreach ($localPackages as $idx => &$pkg) {
+            $sscc = $allSsccs[$idx] ?? $primarySscc;
+            if (!empty($sscc)) {
+                $pkg['sscc'] = $sscc;
+                $pkg['ssccs'] = [$sscc];
+            }
+        }
+
         return $localPackages;
     }
 }

@@ -346,7 +346,16 @@ class ShippingController extends Controller
                 //    das Sammel-PDF genau einmal mit allen Labels (1/3, 2/3, 3/3).
                 $shipmentItems = [];
                 foreach ($plentyPackages as $idx => $plentyPkg) {
-                    $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
+                    // V2: position.ssccs[] (Array), V1: position.sscc (String)
+                    $apiPos = $result['packages'][$idx] ?? [];
+                    if (!empty($apiPos['ssccs']) && is_array($apiPos['ssccs'])) {
+                        $pkgSscc = $apiPos['ssccs'][0] ?? $sscc;
+                    } elseif (!empty($apiPos['sscc'])) {
+                        $pkgSscc = $apiPos['sscc'];
+                    } else {
+                        // Fallback: SSCC aus sscc_list nach Index
+                        $pkgSscc = $result['sscc_list'][$idx] ?? $sscc;
+                    }
                     $isFirst = ($idx === 0);
 
                     $updateData = [
