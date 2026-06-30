@@ -683,6 +683,13 @@ class ShippingController extends Controller
                 }
             }
 
+            // Override: Transland verlangt "B2" statt "EP" für bestimmte
+            // Modulpaletten/Sonderpaletten (IDs 7, 8, 9, 14).
+            $b2PackageTypeIds = [7, 8, 9, 14];
+            if (in_array($packageTypeId, $b2PackageTypeIds, true)) {
+                $zufallCode = 'B2';
+            }
+
             $this->getLogger(__CLASS__)->error('TranslandShipping::register.packageTypeResolved', [
                 'packageTypeId'   => $packageTypeId,
                 'packageTypeName' => $packageTypeName,
