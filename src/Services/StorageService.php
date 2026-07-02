@@ -211,6 +211,13 @@ class StorageService
     }
 
     public function getSubmissionHistory(string $from, string $to): array
+    {
+        return $this->db()->query(Shipment::class)
+            ->where('pickupDate', '>=', $from)
+            ->where('pickupDate', '<=', $to)
+            ->where('submitted', '=', 1)
+            ->get();
+    }
 
     /**
      * Prüft ob ein Auftrag bereits per Bordero an Zufall gesendet wurde.
@@ -228,13 +235,6 @@ class StorageService
         } catch (\Exception $e) {
             return false;
         }
-    }
-    {
-        return $this->db()->query(Shipment::class)
-            ->where('pickupDate', '>=', $from)
-            ->where('pickupDate', '<=', $to)
-            ->where('submitted', '=', 1)
-            ->get();
     }
 
     /**
