@@ -861,18 +861,33 @@ class ShippingController extends Controller
             if ($info->shippingStatus === null || $info->shippingStatus === 'open') {
                 $open[] = $orderId;
             } else {
-                // Auftrag war schon registriert. Automatisch zurücksetzen damit
-                // der Packer den Auftrag erneut scannen kann (z.B. nach einem
-                // Fehler oder Testlauf). Im Produktivbetrieb kommt dieser Fall
-                // selten vor weil der Prozess nach GoodsIssue den Auftrag aus
-                // dem Scan-Pool nimmt.
-                $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadyRegistered', [
-                    'orderId'        => $orderId,
-                    'shippingStatus' => $info->shippingStatus ?? 'unknown',
-                    'note'           => 'ShippingInformation wird zurueckgesetzt fuer erneute Registrierung.',
-                ]);
-                $this->shippingInformation->resetShippingInformation((int)$orderId);
-                $open[] = $orderId;
+                // Prüfen ob der Bordero für diesen Auftrag schon gesendet wurde.
+                // Wenn ja: NICHT zurücksetzen — das würde zu Duplikaten führen.
+                $alreadySubmitted = false;
+                try {
+                    /** @var StorageService $storageService */
+                    $storageService = pluginApp(StorageService::class);
+                    $alreadySubmitted = $storageService->isOrderAlreadySubmitted((int)$orderId);
+                } catch (\Exception $e) {
+                    $alreadySubmitted = true;
+                }
+
+                if ($alreadySubmitted) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadySubmitted', [
+                        'orderId' => $orderId,
+                        'note'    => 'Auftrag wurde bereits per Bordero an Zufall gesendet. Erneute Registrierung wird verhindert.',
+                    ]);
+                    // NICHT in $open aufnehmen → wird übersprungen
+                } else {
+                    // Noch nicht per Bordero gesendet → Reset erlauben (z.B. nach Fehler)
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadyRegistered', [
+                        'orderId'        => $orderId,
+                        'shippingStatus' => $info->shippingStatus ?? 'unknown',
+                        'note'           => 'ShippingInformation wird zurueckgesetzt fuer erneute Registrierung.',
+                    ]);
+                    $this->shippingInformation->resetShippingInformation((int)$orderId);
+                    $open[] = $orderId;
+                }
             }
         }
         return $open;

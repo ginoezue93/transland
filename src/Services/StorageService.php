@@ -19,8 +19,35 @@ class StorageService
 
     public function storeShipment(array $data): void
     {
+        $orderId = (int)($data['order_id'] ?? 0);
+
+        // Duplikat-Check: Wenn für diese orderId bereits ein NICHT
+        // gesendeter Datensatz existiert, überschreiben statt neu anlegen.
+        // Das verhindert doppelte Bordero-Anmeldungen wenn ein Auftrag
+        // versehentlich mehrfach im Prozess gescannt wird.
+        $existing = null;
+        if ($orderId > 0) {
+            try {
+                $results = $this->db()
+                    ->query(Shipment::class)
+                    ->where('orderId', '=', $orderId)
+                    ->where('submitted', '=', 0)
+                    ->get();
+
+                if (!empty($results) && isset($results[0])) {
+                    $existing = $results[0];
+                    $this->getLogger(__METHOD__)->error('TranslandShipping::storage.duplicateOverwritten', [
+                        'orderId' => $orderId,
+                        'note'    => 'Bestehender ungesendeter Datensatz wird ueberschrieben statt doppelt angelegt.',
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // Fehler beim Duplikat-Check → neuen Datensatz anlegen
+            }
+        }
+
         /** @var Shipment $record */
-        $record = pluginApp(Shipment::class);
+        $record = $existing ?? pluginApp(Shipment::class);
 
         $consignee = $data['consignee_address'] ?? [];
 
@@ -184,6 +211,24 @@ class StorageService
     }
 
     public function getSubmissionHistory(string $from, string $to): array
+
+    /**
+     * Prüft ob ein Auftrag bereits per Bordero an Zufall gesendet wurde.
+     */
+    public function isOrderAlreadySubmitted(int $orderId): bool
+    {
+        try {
+            $results = $this->db()
+                ->query(Shipment::class)
+                ->where('orderId', '=', $orderId)
+                ->where('submitted', '=', 1)
+                ->get();
+
+            return !empty($results);
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
     {
         return $this->db()->query(Shipment::class)
             ->where('pickupDate', '>=', $from)
