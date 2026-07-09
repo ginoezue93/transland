@@ -511,13 +511,14 @@ class PayloadBuilderService
         $options = [];
 
         $delivery = $order['deliveryAddress'] ?? [];
-        $phone = $delivery['phone'] ?? '';
         $ref = !empty($order['externalOrderId']) ? $order['externalOrderId'] : (string) ($order['id'] ?? '');
 
-        // 101: Telefonavisierung wenn Telefonnummer vorhanden (code als Integer laut Doku)
-        if (!empty($phone)) {
-            $options[] = ['code' => 101, 'text' => $phone];
+        // 101: Telefonavisierung — IMMER setzen (pauschal pro Kundenanforderung)
+        $phone = $delivery['phone'] ?? '';
+        if (empty($phone)) {
+            $phone = $delivery['name1'] ?? 'siehe Lieferschein';
         }
+        $options[] = ['code' => 101, 'text' => substr((string)$phone, 0, 35)];
 
         // 502: Referenznummer immer setzen (code als Integer laut Doku)
         if (!empty($ref)) {
@@ -544,9 +545,33 @@ class PayloadBuilderService
 
     private function getOrderValue(array $order): float
     {
+        // Warenwert NETTO verwenden (für Zufall Versicherungswert).
+        // Plenty OrderAmount:
+        //   netTotal     = Warenwert netto (nur Waren, ohne Versand/MwSt)
+        //   invoiceTotal = Rechnungsbetrag (inkl. Versand, MwSt)
+        //
+        // isNet=true → Netto-Eintrag, isNet=false → Brutto-Eintrag
+        // Wir nehmen netTotal vom Netto-Eintrag = "Warenwert netto" aus Plenty.
         foreach (($order['amounts'] ?? []) as $amount) {
-            if (($amount['isNet'] ?? false) === false) {
-                return round((float)($amount['invoiceTotal'] ?? 0), 2);
+            if (($amount['isNet'] ?? false) === true) {
+                $val = round((float)($amount['netTotal'] ?? 0), 2);
+                if ($val > 0) {
+                    return $val;
+                }
+            }
+        }
+        // Fallback 1: netTotal vom Brutto-Eintrag
+        foreach (($order['amounts'] ?? []) as $amount) {
+            $val = round((float)($amount['netTotal'] ?? 0), 2);
+            if ($val > 0) {
+                return $val;
+            }
+        }
+        // Fallback 2: invoiceTotal (besser als 0)
+        foreach (($order['amounts'] ?? []) as $amount) {
+            $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
+            if ($val > 0) {
+                return $val;
             }
         }
         return 0.0;

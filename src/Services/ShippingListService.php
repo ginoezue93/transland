@@ -126,29 +126,62 @@ class ShippingListService
                     $shipment = $this->rebuildPositionsFromPackages($shipment);
                 }
 
-                // Sendungen ohne Positionen überspringen — Zufall braucht
-                // mindestens 1 Position pro Sendung.
+                // KRITISCH: Jede Position MUSS mindestens 1 SSCC haben.
+                // Zufall lehnt Sendungen mit packages: [] ab (Pflichtfeld).
+                // Positionen ohne SSCC werden entfernt.
+                $orderId   = (int)($shipment['order_id'] ?? 0);
                 $positions = $shipment['packages'] ?? [];
-                if (empty($positions)) {
-                    $orderId = (int)($shipment['order_id'] ?? 0);
-                    $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.skippedNoPositions', [
+                $validPositions = [];
+                $droppedCount   = 0;
+
+                foreach ($positions as $pos) {
+                    $hasSSCC = false;
+                    if (!empty($pos['packages']) && is_array($pos['packages'])) {
+                        foreach ($pos['packages'] as $pkg) {
+                            if (!empty($pkg['sscc'])) {
+                                $hasSSCC = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ($hasSSCC) {
+                        $validPositions[] = $pos;
+                    } else {
+                        $droppedCount++;
+                    }
+                }
+
+                if ($droppedCount > 0) {
+                    $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.positionsDroppedNoSSCC', [
+                        'orderId'      => $orderId,
+                        'reference'    => $shipment['reference'] ?? '?',
+                        'totalPos'     => count($positions),
+                        'droppedPos'   => $droppedCount,
+                        'validPos'     => count($validPositions),
+                    ]);
+                }
+
+                // Sendung komplett überspringen wenn KEINE gültige Position übrig
+                if (empty($validPositions)) {
+                    $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.skippedNoSSCC', [
                         'orderId'   => $orderId,
                         'reference' => $shipment['reference'] ?? '?',
-                        'note'      => 'Sendung hat keine Positionen und wird uebersprungen.',
+                        'note'      => 'Sendung hat keine Positionen mit SSCC. Wird uebersprungen und als submitted markiert.',
                     ]);
-                    // Trotzdem als submitted markieren damit sie nicht endlos pending bleibt
                     if ($orderId > 0) {
                         $allSubmittedOrderIds[] = $orderId;
                     }
                     continue;
                 }
 
+                $shipment['packages'] = $validPositions;
                 $enrichedShipments[] = $shipment;
             }
 
             if (empty($enrichedShipments)) {
                 $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.allSkipped', [
-                    'note' => 'Alle Sendungen hatten leere Positionen. Kein Bordero gesendet.',
+                    'note' => 'Alle Sendungen hatten keine gueltige SSCC. Kein Bordero gesendet.',
                 ]);
                 continue;
             }
@@ -504,17 +537,29 @@ class ShippingListService
         try {
             $plentyPackages = $this->orderShippingPackage->listOrderShippingPackages($orderId);
             $ssccs = [];
+            $packageNumbers = [];
             foreach ($plentyPackages as $pkg) {
-                if (!empty($pkg->packageNumber)) {
-                    $ssccs[] = (string)$pkg->packageNumber;
+                $pn = !empty($pkg->packageNumber) ? (string)$pkg->packageNumber : '';
+                $packageNumbers[] = $pn;
+                if ($pn !== '') {
+                    $ssccs[] = $pn;
                 }
             }
 
+            $this->getLogger(__METHOD__)->error('TranslandShipping::bordero.enrichDebug', [
+                'orderId'        => $orderId,
+                'storedPosCount' => count($positions),
+                'plentyPkgCount' => count($plentyPackages),
+                'packageNumbers' => $packageNumbers,
+                'ssccCount'      => count($ssccs),
+            ]);
+
             if (!empty($ssccs)) {
+                $primarySscc = $ssccs[0];
                 foreach ($positions as $idx => &$pos) {
-                    if (isset($ssccs[$idx])) {
-                        $pos['packages'] = [['sscc' => $ssccs[$idx]]];
-                    }
+                    // Selbe SSCC für alle Positionen (eine Sendung = eine SSCC)
+                    $sscc = $ssccs[$idx] ?? $primarySscc;
+                    $pos['packages'] = [['sscc' => $sscc]];
                 }
 
                 $shipment['packages'] = $positions;
@@ -556,6 +601,7 @@ class ShippingListService
             $packageTypeRepo = pluginApp(\Plenty\Modules\Order\Shipping\PackageType\Contracts\ShippingPackageTypeRepositoryContract::class);
 
             $positions = [];
+            $allRebuildSsccs = [];
             foreach ($plentyPackages as $pkg) {
                 $packageTypeId = (int)($pkg->packageId ?? 0);
                 $typeName = 'PA';
@@ -588,6 +634,7 @@ class ShippingListService
 
                 $sscc = !empty($pkg->packageNumber) ? (string)$pkg->packageNumber : '';
                 $weightGr = (int)($pkg->weight ?? 0);
+                $allRebuildSsccs[] = $sscc;
 
                 $pos = [
                     'quantity'       => 1,
@@ -602,11 +649,16 @@ class ShippingListService
                     'dangerous_goods' => [],
                 ];
 
-                if ($sscc !== '') {
-                    $pos['packages'] = [['sscc' => $sscc]];
-                }
-
                 $positions[] = $pos;
+            }
+
+            // SSCC auf alle Positionen verteilen (eine Sendung = eine SSCC)
+            $validSsccs = array_values(array_filter($allRebuildSsccs, function($s) { return $s !== ''; }));
+            if (!empty($validSsccs)) {
+                $primarySscc = $validSsccs[0];
+                foreach ($positions as $idx => &$pos) {
+                    $pos['packages'] = [['sscc' => $validSsccs[$idx] ?? $primarySscc]];
+                }
             }
 
             if (!empty($positions)) {

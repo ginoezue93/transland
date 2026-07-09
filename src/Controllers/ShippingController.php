@@ -49,8 +49,8 @@ class ShippingController extends Controller
     /** Tag-Name nach erfolgreichem Label-Druck */
     private const TAG_AUT_ANMELDUNG = 'Aut. Anmeldung';
 
-    /** Tag-Name fuer Gefahrstoffe */
-    private const TAG_GEFAHRSTOFF = 'Gefahrenstoff';
+    /** Tag-Namen fuer Gefahrstoffe (beide Schreibweisen akzeptiert) */
+    private const HAZMAT_TAG_NAMES = ['Gefahrenstoff', 'Gefahrgut'];
 
     /** Ergebnis-Array fuer PlentyONE */
     private array $createOrderResult = [];
@@ -220,7 +220,7 @@ class ShippingController extends Controller
                 ]);
 
                 // 3a. Gefahrstoff-Check (nutzt gesammelte Tags — auch vom Eltern-Auftrag)
-                $hasHazmat = in_array(self::TAG_GEFAHRSTOFF, $orderTagNames, true);
+                $hasHazmat = !empty(array_intersect(self::HAZMAT_TAG_NAMES, $orderTagNames));
                 if ($hasHazmat) {
                     $this->getLogger(__CLASS__)->error('TranslandShipping::register.hazmat_detected', [
                         'orderId' => $orderId,
@@ -346,7 +346,16 @@ class ShippingController extends Controller
                 //    das Sammel-PDF genau einmal mit allen Labels (1/3, 2/3, 3/3).
                 $shipmentItems = [];
                 foreach ($plentyPackages as $idx => $plentyPkg) {
-                    $pkgSscc = $result['packages'][$idx]['sscc'] ?? $sscc;
+                    // V2: position.ssccs[] (Array), V1: position.sscc (String)
+                    $apiPos = $result['packages'][$idx] ?? [];
+                    if (!empty($apiPos['ssccs']) && is_array($apiPos['ssccs'])) {
+                        $pkgSscc = $apiPos['ssccs'][0] ?? $sscc;
+                    } elseif (!empty($apiPos['sscc'])) {
+                        $pkgSscc = $apiPos['sscc'];
+                    } else {
+                        // Fallback: SSCC aus sscc_list nach Index
+                        $pkgSscc = $result['sscc_list'][$idx] ?? $sscc;
+                    }
                     $isFirst = ($idx === 0);
 
                     $updateData = [
@@ -392,11 +401,13 @@ class ShippingController extends Controller
                 $this->runPostLabelActions($order);
 
                 $this->getLogger(__CLASS__)->error('TranslandShipping::register.success', [
-                    'orderId'       => $orderId,
-                    'parentOrderId' => $parentOrderId,
-                    'ssccList'      => $result['sscc_list'],
-                    'packageCount'  => count($shipmentItems),
-                    'hasHazmat'     => $hasHazmat ? 'JA' : 'NEIN',
+                    'orderId'        => $orderId,
+                    'parentOrderId'  => $parentOrderId,
+                    'ssccList'       => $result['sscc_list'],
+                    'packageCount'   => count($shipmentItems),
+                    'hasHazmat'      => $hasHazmat ? 'JA' : 'NEIN',
+                    'shipping_value' => $shipmentData['value'] ?? '?',
+                    'optionCodes'    => array_column($shipmentData['options'] ?? [], 'code'),
                 ]);
 
                 $this->createOrderResult[$orderId] = $this->buildResultArray(
@@ -672,6 +683,13 @@ class ShippingController extends Controller
                 }
             }
 
+            // Override: Transland verlangt "B2" statt "EP" für bestimmte
+            // Modulpaletten/Sonderpaletten (IDs 7, 8, 9, 14).
+            $b2PackageTypeIds = [7, 8, 9, 14];
+            if (in_array($packageTypeId, $b2PackageTypeIds, true)) {
+                $zufallCode = 'B2';
+            }
+
             $this->getLogger(__CLASS__)->error('TranslandShipping::register.packageTypeResolved', [
                 'packageTypeId'   => $packageTypeId,
                 'packageTypeName' => $packageTypeName,
@@ -819,6 +837,8 @@ class ShippingController extends Controller
         foreach (($order->amounts ?? []) as $amount) {
             $amounts[] = [
                 'isNet'        => $amount->isNet        ?? false,
+                'netTotal'     => $amount->netTotal     ?? 0,
+                'grossTotal'   => $amount->grossTotal   ?? 0,
                 'invoiceTotal' => $amount->invoiceTotal ?? 0,
                 'currency'     => $amount->currency     ?? 'EUR',
             ];
@@ -841,18 +861,33 @@ class ShippingController extends Controller
             if ($info->shippingStatus === null || $info->shippingStatus === 'open') {
                 $open[] = $orderId;
             } else {
-                // Auftrag war schon registriert. Automatisch zurücksetzen damit
-                // der Packer den Auftrag erneut scannen kann (z.B. nach einem
-                // Fehler oder Testlauf). Im Produktivbetrieb kommt dieser Fall
-                // selten vor weil der Prozess nach GoodsIssue den Auftrag aus
-                // dem Scan-Pool nimmt.
-                $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadyRegistered', [
-                    'orderId'        => $orderId,
-                    'shippingStatus' => $info->shippingStatus ?? 'unknown',
-                    'note'           => 'ShippingInformation wird zurueckgesetzt fuer erneute Registrierung.',
-                ]);
-                $this->shippingInformation->resetShippingInformation((int)$orderId);
-                $open[] = $orderId;
+                // Prüfen ob der Bordero für diesen Auftrag schon gesendet wurde.
+                // Wenn ja: NICHT zurücksetzen — das würde zu Duplikaten führen.
+                $alreadySubmitted = false;
+                try {
+                    /** @var StorageService $storageService */
+                    $storageService = pluginApp(StorageService::class);
+                    $alreadySubmitted = $storageService->isOrderAlreadySubmitted((int)$orderId);
+                } catch (\Exception $e) {
+                    $alreadySubmitted = true;
+                }
+
+                if ($alreadySubmitted) {
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadySubmitted', [
+                        'orderId' => $orderId,
+                        'note'    => 'Auftrag wurde bereits per Bordero an Zufall gesendet. Erneute Registrierung wird verhindert.',
+                    ]);
+                    // NICHT in $open aufnehmen → wird übersprungen
+                } else {
+                    // Noch nicht per Bordero gesendet → Reset erlauben (z.B. nach Fehler)
+                    $this->getLogger(__CLASS__)->error('TranslandShipping::register.alreadyRegistered', [
+                        'orderId'        => $orderId,
+                        'shippingStatus' => $info->shippingStatus ?? 'unknown',
+                        'note'           => 'ShippingInformation wird zurueckgesetzt fuer erneute Registrierung.',
+                    ]);
+                    $this->shippingInformation->resetShippingInformation((int)$orderId);
+                    $open[] = $orderId;
+                }
             }
         }
         return $open;
