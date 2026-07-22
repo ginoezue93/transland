@@ -301,6 +301,11 @@ class ShippingController extends Controller
                 // 6. Auftrag als Array aufbereiten
                 $orderArray = $this->orderToArray($order);
 
+                $this->getLogger(__CLASS__)->error('TranslandShipping::register.amountsDebug', [
+                    'orderId' => $orderId,
+                    'amounts' => $orderArray['amounts'] ?? [],
+                ]);
+
                 // parentOrderId für Bordero-Gruppierung: wurde oben beim
                 // Tag-Fallback ermittelt. Falls dort nicht gesetzt (z.B. bei
                 // Sales Order), versuche es aus den Order-References.
@@ -836,11 +841,12 @@ class ShippingController extends Controller
         $amounts = [];
         foreach (($order->amounts ?? []) as $amount) {
             $amounts[] = [
-                'isNet'        => $amount->isNet        ?? false,
-                'netTotal'     => $amount->netTotal     ?? 0,
-                'grossTotal'   => $amount->grossTotal   ?? 0,
-                'invoiceTotal' => $amount->invoiceTotal ?? 0,
-                'currency'     => $amount->currency     ?? 'EUR',
+                'isNet'            => $amount->isNet            ?? false,
+                'netTotal'         => $amount->netTotal         ?? 0,
+                'grossTotal'       => $amount->grossTotal       ?? 0,
+                'invoiceTotal'     => $amount->invoiceTotal     ?? 0,
+                'shippingCostsNet' => $amount->shippingCostsNet ?? 0,
+                'currency'         => $amount->currency         ?? 'EUR',
             ];
         }
 

@@ -170,6 +170,7 @@ class PayloadBuilderService
             'pickup_date' => date('Y-m-d'),
             'franking' => '1',
             'reference' => $this->buildReference($order),
+            'value' => $this->getOrderValue($order),
             'shipping_value' => $this->getOrderValue($order),
             'value_currency' => $this->getOrderCurrency($order),
             'weight_gr' => $this->calculateTotalWeightGram($packages),
@@ -261,6 +262,7 @@ class PayloadBuilderService
             'procurement'      => $first['procurement'] ?? false,
             'franking'         => $first['franking'] ?? '1',
             'reference'        => (string)$familyId,
+            'value'            => round($totalValue, 2),
             'shipping_value'   => round($totalValue, 2),
             'value_currency'   => $first['value_currency'] ?? 'EUR',
             'weight_gr'        => $totalWeightGr,
@@ -300,6 +302,7 @@ class PayloadBuilderService
             'procurement' => $shipment['procurement'] ?? false,
             'franking' => $shipment['franking'] ?? '1',
             'reference' => $shipment['reference'] ?? '',
+            'value' => round((float) ($shipment['value'] ?? 0), 2),
             'shipping_value' => round((float) ($shipment['value'] ?? 0), 2),
             'value_currency' => $shipment['value_currency'] ?? 'EUR',
             'weight_gr' => (int) ($shipment['weight_gr'] ?? 0),
@@ -545,29 +548,21 @@ class PayloadBuilderService
 
     private function getOrderValue(array $order): float
     {
-        // Warenwert NETTO verwenden (für Zufall Versicherungswert).
-        // Plenty OrderAmount:
-        //   netTotal     = Warenwert netto (nur Waren, ohne Versand/MwSt)
-        //   invoiceTotal = Rechnungsbetrag (inkl. Versand, MwSt)
-        //
-        // isNet=true → Netto-Eintrag, isNet=false → Brutto-Eintrag
-        // Wir nehmen netTotal vom Netto-Eintrag = "Warenwert netto" aus Plenty.
+        // "Warenwert netto" wie im Plenty-UI:
+        //   Warenwert netto = netTotal - Versandkosten netto
+        // (netTotal in Plenty enthält die Versandkosten!)
         foreach (($order['amounts'] ?? []) as $amount) {
-            if (($amount['isNet'] ?? false) === true) {
-                $val = round((float)($amount['netTotal'] ?? 0), 2);
-                if ($val > 0) {
-                    return $val;
+            $netTotal    = (float)($amount['netTotal'] ?? 0);
+            $shippingNet = (float)($amount['shippingCostsNet'] ?? 0);
+            if ($netTotal > 0) {
+                $warenwert = round($netTotal - $shippingNet, 2);
+                if ($warenwert > 0) {
+                    return $warenwert;
                 }
+                return round($netTotal, 2);
             }
         }
-        // Fallback 1: netTotal vom Brutto-Eintrag
-        foreach (($order['amounts'] ?? []) as $amount) {
-            $val = round((float)($amount['netTotal'] ?? 0), 2);
-            if ($val > 0) {
-                return $val;
-            }
-        }
-        // Fallback 2: invoiceTotal (besser als 0)
+        // Fallback: invoiceTotal (besser als 0)
         foreach (($order['amounts'] ?? []) as $amount) {
             $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
             if ($val > 0) {
@@ -603,10 +598,19 @@ class PayloadBuilderService
     private function mapPackagingType(string $type): string
     {
         $upper = strtoupper(trim($type));
-        $validCodes = ['BL', 'BU', 'CH', 'CP', 'CV', 'DP', 'EI', 'EP', 'FA', 'FP', 'GP', 'HP', 'KB', 'KI', 'KP', 'KT', 'PA', 'PK', 'SA', 'ST', 'VP'];
+        $validCodes = ['B2', 'BL', 'BU', 'CH', 'CP', 'CV', 'DP', 'EI', 'EP', 'FA', 'FP', 'GP', 'HP', 'KB', 'KI', 'KP', 'KT', 'PA', 'PK', 'SA', 'ST', 'VP'];
 
         if (in_array($upper, $validCodes, true)) {
             return $upper;
+        }
+
+        // Unbekannter Typ mit Underscore: Prefix extrahieren (z.B. "EP_Modulpalette" → "EP")
+        if (strpos($upper, '_') !== false) {
+            $prefix = substr($upper, 0, strpos($upper, '_'));
+            $prefix = preg_replace('/[0-9]+$/', '', $prefix);
+            if ($prefix !== '' && $prefix !== null && in_array($prefix, $validCodes, true)) {
+                return $prefix;
+            }
         }
 
         return self::PACKAGING_TYPE_MAP[strtolower(trim($type))] ?? 'FP';
