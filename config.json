@@ -132,6 +132,13 @@
   },
   {
     "tab": "Etikett & Tagesabschluss",
+    "key": "default_shipping_value",
+    "label": "Default-Warenwert in EUR wenn Auftrag 0 € hat (z.B. Gewährleistung)",
+    "type": "text",
+    "default": "50"
+  },
+  {
+    "tab": "Etikett & Tagesabschluss",
     "key": "webhook_token",
     "label": "Webhook-Token für externen Bordero-Trigger (min. 16 Zeichen, z.B. ein zufälliger String)",
     "type": "text",

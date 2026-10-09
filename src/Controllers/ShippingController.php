@@ -318,6 +318,56 @@ class ShippingController extends Controller
                     }
                 }
 
+                // 6a. Warenwert-Fallback auf Eltern-Auftrag.
+                //     Bei Gewährleistungen läuft ein Lieferauftrag mit
+                //     0-Euro-amounts durch den Prozess, während der
+                //     Warenwert (z.B. pauschal 50 €) am Hauptauftrag steht.
+                //     Gleiche Logik wie beim Gefahrstoff-Tag: wenn der
+                //     registrierte Auftrag keinen Wert > 0 hat, nimm die
+                //     amounts des Eltern-Auftrags.
+                $hasValue = false;
+                foreach (($orderArray['amounts'] ?? []) as $amt) {
+                    if ((float)($amt['netTotal'] ?? 0) > 0
+                        || (float)($amt['grossTotal'] ?? 0) > 0
+                        || (float)($amt['invoiceTotal'] ?? 0) > 0) {
+                        $hasValue = true;
+                        break;
+                    }
+                }
+
+                if (!$hasValue && $parentOrderId > 0) {
+                    try {
+                        $parentForValue = $this->orderRepository->findOrderById($parentOrderId, ['amounts']);
+                        if ($parentForValue) {
+                            $parentAmounts = [];
+                            foreach (($parentForValue->amounts ?? []) as $amount) {
+                                $parentAmounts[] = [
+                                    'isNet'            => $amount->isNet            ?? false,
+                                    'netTotal'         => $amount->netTotal         ?? 0,
+                                    'grossTotal'       => $amount->grossTotal       ?? 0,
+                                    'invoiceTotal'     => $amount->invoiceTotal     ?? 0,
+                                    'shippingCostsNet' => $amount->shippingCostsNet ?? 0,
+                                    'currency'         => $amount->currency         ?? 'EUR',
+                                ];
+                            }
+                            if (!empty($parentAmounts)) {
+                                $orderArray['amounts'] = $parentAmounts;
+                                $this->getLogger(__CLASS__)->error('TranslandShipping::register.valueFromParent', [
+                                    'orderId'       => $orderId,
+                                    'parentOrderId' => $parentOrderId,
+                                    'amounts'       => $parentAmounts,
+                                ]);
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        $this->getLogger(__CLASS__)->error('TranslandShipping::register.parentValueLoadFailed', [
+                            'orderId'       => $orderId,
+                            'parentOrderId' => $parentOrderId,
+                            'error'         => $e->getMessage(),
+                        ]);
+                    }
+                }
+
                 // 7. Label erstellen via Transland API — EIN Call für alle Pakete
                 //    Zufall nummeriert die Labels automatisch (1/3, 2/3, 3/3)
                 //    und gibt ein Sammel-PDF zurück.

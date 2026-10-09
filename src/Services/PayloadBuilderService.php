@@ -262,8 +262,8 @@ class PayloadBuilderService
             'procurement'      => $first['procurement'] ?? false,
             'franking'         => $first['franking'] ?? '1',
             'reference'        => (string)$familyId,
-            'value'            => round($totalValue, 2),
-            'shipping_value'   => round($totalValue, 2),
+            'value'            => $totalValue > 0 ? round($totalValue, 2) : $this->getDefaultShippingValue(),
+            'shipping_value'   => $totalValue > 0 ? round($totalValue, 2) : $this->getDefaultShippingValue(),
             'value_currency'   => $first['value_currency'] ?? 'EUR',
             'weight_gr'        => $totalWeightGr,
             'positions'        => $allPositions,
@@ -302,8 +302,8 @@ class PayloadBuilderService
             'procurement' => $shipment['procurement'] ?? false,
             'franking' => $shipment['franking'] ?? '1',
             'reference' => $shipment['reference'] ?? '',
-            'value' => round((float) ($shipment['value'] ?? 0), 2),
-            'shipping_value' => round((float) ($shipment['value'] ?? 0), 2),
+            'value' => ((float)($shipment['value'] ?? 0)) > 0 ? round((float)$shipment['value'], 2) : $this->getDefaultShippingValue(),
+            'shipping_value' => ((float)($shipment['value'] ?? 0)) > 0 ? round((float)$shipment['value'], 2) : $this->getDefaultShippingValue(),
             'value_currency' => $shipment['value_currency'] ?? 'EUR',
             'weight_gr' => (int) ($shipment['weight_gr'] ?? 0),
             'positions' => $shipment['packages'] ?? [],
@@ -562,14 +562,39 @@ class PayloadBuilderService
                 return round($netTotal, 2);
             }
         }
-        // Fallback: invoiceTotal (besser als 0)
+        // Fallback 1: grossTotal
+        foreach (($order['amounts'] ?? []) as $amount) {
+            $val = round((float)($amount['grossTotal'] ?? 0), 2);
+            if ($val > 0) {
+                return $val;
+            }
+        }
+        // Fallback 2: invoiceTotal
         foreach (($order['amounts'] ?? []) as $amount) {
             $val = round((float)($amount['invoiceTotal'] ?? 0), 2);
             if ($val > 0) {
                 return $val;
             }
         }
-        return 0.0;
+
+        // Letzter Fallback: konfigurierter Default-Warenwert.
+        // Gewährleistungsaufträge haben 0-Euro-Positionen → ohne diesen
+        // Default ginge 0.00 EUR raus und Transland setzt pauschal
+        // 12.500 EUR an (teure Versicherung!). Deshalb: nie 0 senden.
+        return $this->getDefaultShippingValue();
+    }
+
+    /**
+     * Default-Warenwert aus Plugin-Config (Tab "Etikett & Tagesabschluss").
+     * Wird verwendet wenn der Auftrag keinen Warenwert > 0 hat
+     * (z.B. Gewährleistung mit 0-Euro-Positionen).
+     */
+    public function getDefaultShippingValue(): float
+    {
+        $settings = $this->settingsService->getSettings();
+        $raw = str_replace(',', '.', trim((string)($settings['default_shipping_value'] ?? '50')));
+        $val = (float)$raw;
+        return $val > 0 ? round($val, 2) : 50.0;
     }
 
     private function getOrderCurrency(array $order): string
